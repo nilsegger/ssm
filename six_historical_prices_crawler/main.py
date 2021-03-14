@@ -4,8 +4,11 @@ import sqlite3 as sql
 
 """
     TODO
-        - add table for actual share value / date
+        - insert daily share value from file
         - fetch data from six historical data -> insert into table and somehow save progress in case of failure
+            - 1. Try using monthly trade data, if not found
+            - 2. Use daily reports until another monthly trade data is found
+            - Insert only all data from a day, if done properly, it can easily be queried when the program last stopped
 """
 def print_help():
     print("Usage: python3 main.py <ReferenceIn | ReferencesOut> <optional...>")
@@ -19,6 +22,13 @@ def insert_share_reference(conn, short_name, isin, isc, currency):
     stmt = 'INSERT INTO shares_reference (short_name, isin, isc, currency) VALUES(?, ?, ?, ?);'
     cur = conn.cursor()
     cur.execute(stmt, [short_name, isin, isc, currency])
+    conn.commit()
+    return cur.lastrowid
+
+def insert_share_daily_value(conn, isin, date, closing_price, low_price, high_price):
+    stmt = 'INSERT INTO daily_share_values (isin, date, closing_price, low_price, high_price) VALUES (?, ?, ?, ?, ?);'
+    cur = conn.cursor()
+    cur.execute(stmt, [isin, date, closing_price, low_price, high_price])
     conn.commit()
     return cur.lastrowid
 
@@ -43,6 +53,13 @@ def parse_share_reference_file(conn, file_path):
             if len(values) > 12 and get_share_reference(conn, values[4]) is None:
                 insert_share_reference(conn, values[0], values[4], values[12], values[8]) 
 
+def parse_share_daily_price_file(conn, file_path):
+    with open(file_path, 'r', encoding='latin1') as f:
+       content = f.read()
+       content = content.split('\n')[1:]
+       for line in content:
+           # TODO split data and insert, differentiate between monthly and daily reports
+           pass
 
 headers = { 'accept': 'application/json, text/plain, */*', 
             'Referer': 'https://www.six-group.com/en/products-services/the-swiss-stock-exchange/market-data/statistics/historical-prices.html',
