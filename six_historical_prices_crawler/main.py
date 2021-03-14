@@ -1,9 +1,12 @@
 import sys
+from datetime import datetime
 import requests as req
 import sqlite3 as sql
 
 """
     TODO
+        - use csv library so to not split , in  "" text (leads to misplaced values)
+        - use bulk inserts instead of single commits
         - insert daily share value from file
         - fetch data from six historical data -> insert into table and somehow save progress in case of failure
             - 1. Try using monthly trade data, if not found
@@ -11,9 +14,11 @@ import sqlite3 as sql
             - Insert only all data from a day, if done properly, it can easily be queried when the program last stopped
 """
 def print_help():
-    print("Usage: python3 main.py <ReferenceIn | ReferencesOut> <optional...>")
+    print("Usage: python3 main.py <ReferenceIn | ReferencesOut | DailyData> <optional...>")
     print("ReferenceIn: Read file and insert share references into db. Optionals needs to be a path to file.")
     print("ReferencesOut: Print all share references. Optionals are Offset and Limit")
+    print("DailyData: Insert daily data of shares from file. Optional need to be the filepath to read from.")
+    print("MonthlyTrade: Insert monthly trade data of shares from file. Optional need to be the filepath to read from.")
 
 def create_conn():
     return sql.connect('data/market_data.db')
@@ -44,22 +49,34 @@ def list_share_references(conn, offset=0, limit=20):
     cur.execute(stmt, [limit, offset])
     return cur.fetchall()
 
-def parse_share_reference_file(conn, file_path):
-    with open(file_path, 'r', encoding='latin1') as f:
+def open_csv(file_path):
+     with open(file_path, 'r', encoding='latin1') as f:
         content = f.read()
         content = content.split('\n')[1:]
-        for line in content:
-            values = line.split(';')
-            if len(values) > 12 and get_share_reference(conn, values[4]) is None:
-                insert_share_reference(conn, values[0], values[4], values[12], values[8]) 
+        return content
+    
+def parse_share_reference_file(conn, file_path):
+    content = open_csv(file_path) 
+    for line in content:
+        values = line.split(';')
+        if len(values) > 12 and get_share_reference(conn, values[4]) is None:
+            insert_share_reference(conn, values[0], values[4], values[12], values[8]) 
 
 def parse_share_daily_price_file(conn, file_path):
-    with open(file_path, 'r', encoding='latin1') as f:
-       content = f.read()
-       content = content.split('\n')[1:]
-       for line in content:
-           # TODO split data and insert, differentiate between monthly and daily reports
-           pass
+    content = open_csv(file_path) 
+    for line in content:
+       values = line.split(';')
+       if len(values) > 12:
+           insert_share_daily_value(conn, values[1], datetime.strptime(values[7], '%Y%m%d').timestamp(), values[4], values[6], values[5])
+
+def parse_monthly_trade_data(conn, file_path):
+    content = open_csv(file_path) 
+    for line in content:
+       values = line.split(',')
+       print(values)
+       if len(values) > 11:
+           insert_share_daily_value(conn, values[4], datetime.strptime(values[8], '%d.%m.%Y').timestamp(), values[12], values[11], values[10])
+
 
 headers = { 'accept': 'application/json, text/plain, */*', 
             'Referer': 'https://www.six-group.com/en/products-services/the-swiss-stock-exchange/market-data/statistics/historical-prices.html',
@@ -84,6 +101,12 @@ if __name__ == '__main__':
             print('\t|\t'.join(["id", "ShortName", "ISIN", "ISC", "Currency"]))
             for row in data:
                 print('\t|\t'.join([str(x) for x in row]))
+        elif sys.argv[1] == "DailyData" and len(sys.argv) > 2:
+            conn = create_conn()
+            parse_share_daily_price_file(conn, sys.argv[2])
+        elif sys.argv[1] == "MonthlyTrade" and len(sys.argv) > 2:
+            conn = create_conn()
+            parse_monthly_trade_data(conn, sys.argv[2])
         else:
             print_help()
     else:
