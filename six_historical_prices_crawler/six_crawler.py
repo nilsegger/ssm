@@ -54,7 +54,7 @@ def get_progress(folder: str):
             return last_blue_chip if last_blue_chip >= last_small_and_mid else last_small_and_mid
 
 def download(url: str, referer: str, file:str, folder: str):
-    time.sleep(float(random.randint(1, 9999)) / 10000.0)
+    time.sleep(float(random.randint(5000, 9999)) / 10000.0)
     headers = {"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
                 "Accept-Encoding": "gzip, deflate, br",
                 "Accept-Language": "en-GB,en-US;q=0.9,en;q=0.8",
