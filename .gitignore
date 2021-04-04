@@ -1,2 +1,7 @@
 six_historical_prices_crawler/temp
 *.swp
+*/.cache/*
+*/build/*
+*.bak
+*/compile_commands.json
+
