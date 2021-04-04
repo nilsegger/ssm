@@ -12,8 +12,13 @@ int main(int argc, char** argv) {
 		fprintf(stderr, "Usage: ./yc <file>\n");
 		return -1;
 	}
+	valor_symbol_t* valor_symbol = NULL;
+	find_valors(argv[1], &valor_symbol);
 
-	find_valors(argv[1]);
+	for(valor_symbol_t* iter = valor_symbol; iter != NULL; iter = iter->next) {
+		printf("ValorSymbol: %s\n", iter->symbol);
+	}
 
+	free_valor_symbols(valor_symbol);
 	return 0;
 }
