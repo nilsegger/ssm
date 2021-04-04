@@ -7,6 +7,11 @@
 #define TRUE 1
 #define CSV_BUFFER_SIZE 1024
 
+typedef struct csv_tracker {
+	uint8_t is_header;
+	long unsigned fields;
+} csv_tracker_t;
+
 void find_valor_symbol_fc(void* s, size_t len, void* data) {
 	csv_tracker_t * tracker = (csv_tracker_t*)data;
 	if(tracker->is_header) {
