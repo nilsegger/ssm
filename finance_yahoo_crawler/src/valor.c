@@ -73,6 +73,7 @@ int find_valors(const char* file_path, valor_symbol_t** valor_symbol) {
 		fclose(fp);
 	}
 	csv_free(&parser);
+	*valor_symbol = tracker.list;
 	return 0;
 }
 
