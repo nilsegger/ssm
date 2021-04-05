@@ -1,3 +1,8 @@
+#define VALOR_OK 0
+#define VALOR_INIT_ERROR 1
+#define VALOR_FILE_NOT_FOUND 2
+#define VALOR_PARSING_ERROR 3
+
 typedef struct valor_symbol {
 	char* symbol;
 	struct valor_symbol* next;

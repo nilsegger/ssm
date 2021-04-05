@@ -44,28 +44,23 @@ void row_track_rc(int c, void* data) {
 }
 
 int find_valors(const char* file_path, valor_symbol_t** valor_symbol) {
+	uint8_t r = VALOR_OK;
 	FILE* fp = NULL;
 	struct csv_parser parser;
 	char buffer[CSV_BUFFER_SIZE];
 	size_t bytes_read;
 	csv_tracker_t tracker = {TRUE, 0, NULL};
-
 	if(csv_init(&parser, CSV_APPEND_NULL) != 0) {	
-		printf("Unable to init csv.\n");
-		return -1;
-	} else {
-		printf("CSV initialized\n");
-	}
-
+		return VALOR_INIT_ERROR;
+	} 
 	csv_set_delim(&parser, ';');
-
 	fp = fopen(file_path, "rb");
 	if(!fp) {
-		printf("Unable to open file %s.", file_path);
+		r = VALOR_FILE_NOT_FOUND;
 	} else {
-		while((bytes_read=fread(buffer, 1, 1024, fp)) > 0) {
+		while((bytes_read=fread(buffer, 1, CSV_BUFFER_SIZE, fp)) > 0) {
 			if(csv_parse(&parser, buffer, bytes_read, find_valor_symbol_fc, row_track_rc, &tracker) != bytes_read) {
-				fprintf(stderr, "Error while parsing file: %s\n", csv_strerror(csv_error(&parser)));
+				r = VALOR_PARSING_ERROR;
 				break;
 			}
 		}
@@ -73,8 +68,12 @@ int find_valors(const char* file_path, valor_symbol_t** valor_symbol) {
 		fclose(fp);
 	}
 	csv_free(&parser);
-	*valor_symbol = tracker.list;
-	return 0;
+	if(r == VALOR_OK) {
+		*valor_symbol = tracker.list;
+	} else if(*valor_symbol != NULL) {
+		free_valor_symbols(*valor_symbol);
+	}
+	return r;
 }
 
 void free_valor_symbols(valor_symbol_t* valor_symbol) {
