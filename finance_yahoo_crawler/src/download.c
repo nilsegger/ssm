@@ -72,29 +72,27 @@ int download_file(const char* url, memory_struct_t* chunk) {
 	res = curl_easy_perform(curl_handle);
 
 	/* check for errors */ 
-	if(res != CURLE_OK) {
+	/*if(res != CURLE_OK) {
 		fprintf(stderr, "curl_easy_perform() failed: %s\n",
 		curl_easy_strerror(res));
 	}
 	else {
-		/*
-		* Now, our chunk.memory points to a memory block that is chunk.size
-		* bytes big and contains the remote file.
-		*
-		* Do something nice with it!
-		*/ 
+	//	* Now, our chunk.memory points to a memory block that is chunk.size
+	//	* bytes big and contains the remote file.
+	//	*
+	//	* Do something nice with it!
 		printf("%lu bytes retrieved\n", (unsigned long)chunk->size);
-	}
+	}*/
 
 	/* cleanup curl stuff */ 
 	curl_easy_cleanup(curl_handle);
-
-	//free(chunk->memory);
 
 	/* we're done with libcurl, so clean it up */ 
 	curl_global_cleanup();
 
 	if(res != CURLE_OK) {
+		fprintf(stderr, "curl_easy_perform() failed: %s\n",
+		curl_easy_strerror(res));
 		return DOWNLOAD_ERROR;
 	}
 	return DOWNLOAD_OK;
