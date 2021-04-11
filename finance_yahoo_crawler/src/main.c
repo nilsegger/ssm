@@ -7,9 +7,11 @@
 #include <stdint.h>
 
 #include "valor.h" 
+#include "download.h"
 
 int main(int argc, char** argv) {
-	if(argc == 1) {
+
+	/*if(argc == 1) {
 		fprintf(stderr, "Usage: ./yc <file>\n");
 		return -1;
 	}
@@ -22,7 +24,14 @@ int main(int argc, char** argv) {
 		free_valor_symbols(valor_symbol);
 	} else {
 		fprintf(stderr, "Failed finding valor symbols with code: %d\n", ec);	
+	}*/
+
+	const char* url = "https://eggersite.ch";
+	memory_struct_t chunk;
+	if(download_file(url, &chunk) == DOWNLOAD_OK) {
+		printf("Received: %.*s\n", (int)(chunk.size), chunk.memory);
 	}
+	free(chunk.memory);
 
 	return 0;
 }

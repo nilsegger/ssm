@@ -6,11 +6,13 @@ set(CMAKE_BUILD_TYPE Debug)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_library(libcsv csv REQUIRED)
+find_library(libcurl curl REQUIRED)
 
 add_executable(${PROJECT_NAME} 
 	src/main.c
 	src/valor.c
+	src/download.c
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE include)
-target_link_libraries(${PROJECT_NAME} PRIVATE m ${libcsv})
+target_link_libraries(${PROJECT_NAME} PRIVATE m ${libcsv} ${libcurl})
