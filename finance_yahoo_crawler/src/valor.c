@@ -1,15 +1,20 @@
 #include <stdint.h>
 #include <string.h>
+#include <stdbool.h>
+
+// https://stackoverflow.com/questions/15334558/compiler-gets-warnings-when-using-strptime-function-c
+#define __USE_XOPEN
+#define _GNU_SOURCE
+#include <time.h>
+
 #include <csv.h>
 
 #include "valor.h"
 
-#define FALSE 0
-#define TRUE 1
 #define CSV_BUFFER_SIZE 1024
 
 typedef struct csv_tracker {
-	uint8_t is_header;
+	bool is_header;
 	long unsigned fields;
 	valor_symbol_t* list;
 	valor_symbol_t* current;
@@ -19,6 +24,7 @@ void malloc_valor_symbol(valor_symbol_t** owner, void* s) {
 	*owner = (valor_symbol_t*)malloc(sizeof(valor_symbol_t));
 	(*owner)->next = NULL;	
 	(*owner)->symbol = (char*)malloc(strlen(s) + 1);
+	(*owner)->first_day = 0;
 	strcpy((*owner)->symbol, s);	
 }
 
@@ -34,13 +40,21 @@ void find_valor_symbol_fc(void* s, size_t len, void* data) {
 			malloc_valor_symbol(&(tracker->current->next), s);
 			tracker->current = tracker->current->next;
 		}
+	} else if(tracker->fields == 21) {
+		/*struct tm time;
+		strptime(s, "%Y%m%d", &time);*/
+		//tracker->current->first_day = (uint64_t)timegm(&time);
+		if(tracker->current->first_day == -1) {
+			tracker->current->first_day = 0;
+		}
 	}
 	tracker->fields++;
 }
 
 void row_track_rc(int c, void* data) {
-	((csv_tracker_t*)data)->fields = 0;
-	((csv_tracker_t*)data)->is_header = FALSE;
+	csv_tracker_t * tracker = (csv_tracker_t*)data;
+	tracker->fields = 0;
+	tracker->is_header = false;
 }
 
 int find_valors(const char* file_path, valor_symbol_t** valor_symbol) {
@@ -49,7 +63,7 @@ int find_valors(const char* file_path, valor_symbol_t** valor_symbol) {
 	struct csv_parser parser;
 	char buffer[CSV_BUFFER_SIZE];
 	size_t bytes_read;
-	csv_tracker_t tracker = {TRUE, 0, NULL};
+	csv_tracker_t tracker = {true, 0, NULL};
 	if(csv_init(&parser, CSV_APPEND_NULL) != 0) {	
 		return VALOR_INIT_ERROR;
 	} 

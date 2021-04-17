@@ -4,6 +4,7 @@ project(yc VERSION 1.0)
 
 set(CMAKE_BUILD_TYPE Debug)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(C_STANDARD 99)
 
 find_library(libcsv csv REQUIRED)
 find_library(libcurl curl REQUIRED)

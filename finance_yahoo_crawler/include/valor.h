@@ -1,3 +1,5 @@
+#include <stdint.h>
+
 #define VALOR_OK 0
 #define VALOR_INIT_ERROR 1
 #define VALOR_FILE_NOT_FOUND 2
@@ -5,6 +7,7 @@
 
 typedef struct valor_symbol {
 	char* symbol;
+	uint64_t first_day;
 	struct valor_symbol* next;
 } valor_symbol_t;
 
