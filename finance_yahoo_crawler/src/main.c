@@ -8,6 +8,7 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include <pthread.h>
 
 #include "valor.h" 
 #include "download.h"
@@ -29,26 +30,32 @@ int main(int argc, char** argv) {
 			sprintf(url, template, iter->symbol, (uint64_t)iter->first_day, (uint64_t)time(NULL));
 
 			memory_struct_t chunk;
+			pthread_t share_parse_thread_id;
 			if(download_file(url, &chunk) != DOWNLOAD_OK) {
 				printf("Failed to download %s\n\t%s\n", iter->symbol, url);
-			} else {
-				char file[255];
-				const char file_template[] = "%s/%s.SW.csv";
-				sprintf(file, file_template, argv[2], iter->symbol);
-				FILE* fp = fopen(file, "w");
-				fwrite(chunk.memory, sizeof(char), chunk.size, fp);
-				fclose(fp);
+				continue;
+			} 
+			char file[255];
+			const char file_template[] = "%s/%s.SW.csv";
+			sprintf(file, file_template, argv[2], iter->symbol);
+			FILE* fp = fopen(file, "w");
+			fwrite(chunk.memory, sizeof(char), chunk.size, fp);
+			fclose(fp);
 
-				share_value_t* root = NULL;
-				if(parse_file(chunk.memory, chunk.size, &root) == DATA_OK) {
-					for(share_value_t* iter = root; iter != NULL; iter = iter->next) {
-						printf("%lu;%f;%f;%f;%lu\n", iter->date_timestamp, iter->close, iter->high, iter->low, iter->volume);
-					}
-					free_share_value_list(root);
+			parse_share_file_args_t share_args = {chunk.memory, chunk.size, NULL};
+			pthread_create(&share_parse_thread_id, NULL, parse_share_file, &share_args);
+				
+			sleep(1);
+			pthread_join(share_parse_thread_id, NULL);
+			if(share_args.result == DATA_OK) {
+				for(share_value_t* iter = share_args.root; iter != NULL; iter = iter->next) {
+					printf("%lu;%f;%f;%f;%lu\n", iter->date_timestamp, iter->close, iter->high, iter->low, iter->volume);
 				}
+				free_share_value_list(share_args.root);
+			} else {
+				fprintf(stderr, "Failed to parse data of %s. Code: %i\n.", file, share_args.result);
 			}
 			free(chunk.memory);
-			sleep(1);
 			break;
 		}
 		free_valor_symbols(valor_symbol);

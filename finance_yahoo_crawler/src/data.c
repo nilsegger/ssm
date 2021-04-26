@@ -69,23 +69,25 @@ void row_callback(int c, void* data) {
 	tracker->is_header = false;
 }
 
-int parse_file(char* buffer, size_t len, share_value_t** root) {
+void* parse_share_file(void* a) {
+	parse_share_file_args_t* args = a;
 	struct csv_parser parser;
-	uint8_t r = DATA_OK;
+	args->result = DATA_OK;
 	csv_tracker_t tracker = {true, 0, 0, NULL};
 	if(csv_init(&parser, CSV_APPEND_NULL) != 0) {	
-		return DATA_INIT_ERROR;
+		args->result = DATA_INIT_ERROR;
+		return NULL;
 	} 
 	csv_set_delim(&parser, ',');
-	if(csv_parse(&parser, buffer, len, field_callback, row_callback, &tracker) != len) {
-		r = DATA_PARSING_ERROR;
+	if(csv_parse(&parser, args->buffer, args->len, field_callback, row_callback, &tracker) != args->len) {
+		args->result = DATA_PARSING_ERROR;
 	}
 	csv_fini(&parser, field_callback, row_callback, &tracker);
 	csv_free(&parser);
-	if(r == DATA_OK) {
-		*root = tracker.list;
+	if(args->result == DATA_OK) {
+		args->root = tracker.list;
 	}
-	return r;
+	return NULL;
 }
  
 void free_share_value_list(share_value_t* root) {

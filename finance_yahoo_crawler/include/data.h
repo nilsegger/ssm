@@ -19,6 +19,12 @@ typedef struct share_value {
 	struct share_value* next;
 } share_value_t;
 
+typedef struct parse_share_file_args {
+	char* buffer;
+	size_t len;
+	share_value_t* root;
+	uint8_t result;
+} parse_share_file_args_t;
 /**
  * Parses file of share daily values and creates linked list of share_value_t
  * @param buffer In memory buffer of share file 
@@ -27,6 +33,6 @@ typedef struct share_value {
  *
  * @return Returns DATA_OK if successfull, anything else is an error.
  */
-int parse_file(char* buffer, size_t len, share_value_t** root);
+void* parse_share_file(void* args);
 
 void free_share_value_list(share_value_t* root);
