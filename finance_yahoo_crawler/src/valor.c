@@ -2,11 +2,6 @@
 #include <string.h>
 #include <stdbool.h>
 
-// https://stackoverflow.com/questions/15334558/compiler-gets-warnings-when-using-strptime-function-c
-#define __USE_XOPEN
-#define _GNU_SOURCE
-#include <time.h>
-
 #include <csv.h>
 
 #include "valor.h"
@@ -41,12 +36,7 @@ void find_valor_symbol_fc(void* s, size_t len, void* data) {
 			tracker->current = tracker->current->next;
 		}
 	} else if(tracker->fields == 21) {
-		/*struct tm time;
-		strptime(s, "%Y%m%d", &time);*/
-		//tracker->current->first_day = (uint64_t)timegm(&time);
-		if(tracker->current->first_day == -1) {
-			tracker->current->first_day = 0;
-		}
+		tracker->current->first_day = 0; // finance.yahoo returns each value of first day if 0 is passed as timestamp for first day
 	}
 	tracker->fields++;
 }

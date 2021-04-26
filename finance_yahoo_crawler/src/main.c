@@ -7,13 +7,15 @@
 #include <stdint.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 
 #include "valor.h" 
 #include "download.h"
+#include "data.h"
 
 int main(int argc, char** argv) {
 
-	if(argc == 2) {
+	if(argc != 3) {
 		fprintf(stderr, "Usage: ./yc [REFERENCE_FILE] [SAVE_FOLDER]\n");
 		return -1;
 	}
@@ -36,8 +38,16 @@ int main(int argc, char** argv) {
 				FILE* fp = fopen(file, "w");
 				fwrite(chunk.memory, sizeof(char), chunk.size, fp);
 				fclose(fp);
+
+				share_value_t* root = NULL;
+				parse_file(file, &root);
+				for(share_value_t* iter = root; iter != NULL; iter = iter->next) {
+					printf("%lu;%f;%f;%f;%lu\n", iter->date_timestamp, iter->close, iter->high, iter->low, iter->volume);
+				}
 			}
 			free(chunk.memory);
+			sleep(1);
+			break;
 		}
 		free_valor_symbols(valor_symbol);
 	} else {
