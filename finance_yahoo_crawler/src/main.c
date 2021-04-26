@@ -40,9 +40,11 @@ int main(int argc, char** argv) {
 				fclose(fp);
 
 				share_value_t* root = NULL;
-				parse_file(file, &root);
-				for(share_value_t* iter = root; iter != NULL; iter = iter->next) {
-					printf("%lu;%f;%f;%f;%lu\n", iter->date_timestamp, iter->close, iter->high, iter->low, iter->volume);
+				if(parse_file(chunk.memory, chunk.size, &root) == DATA_OK) {
+					for(share_value_t* iter = root; iter != NULL; iter = iter->next) {
+						printf("%lu;%f;%f;%f;%lu\n", iter->date_timestamp, iter->close, iter->high, iter->low, iter->volume);
+					}
+					free_share_value_list(root);
 				}
 			}
 			free(chunk.memory);

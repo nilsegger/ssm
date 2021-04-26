@@ -69,34 +69,29 @@ void row_callback(int c, void* data) {
 	tracker->is_header = false;
 }
 
-int parse_file(const char* file_path, share_value_t** root) {
-	FILE* fp = NULL;
+int parse_file(char* buffer, size_t len, share_value_t** root) {
 	struct csv_parser parser;
-	char buffer[CSV_BUFFER_SIZE];
-	size_t bytes_read;
 	uint8_t r = DATA_OK;
 	csv_tracker_t tracker = {true, 0, 0, NULL};
 	if(csv_init(&parser, CSV_APPEND_NULL) != 0) {	
 		return DATA_INIT_ERROR;
 	} 
 	csv_set_delim(&parser, ',');
-	// TODO simply take buffer parameter of file contents instead of writing it to a file, or do both for redundancy
-	fp = fopen(file_path, "rb");
-	if(!fp) {
-		r = DATA_FILE_NOT_FOUND;
-	} else {
-		while((bytes_read=fread(buffer, 1, CSV_BUFFER_SIZE, fp)) > 0) {
-			if(csv_parse(&parser, buffer, bytes_read, field_callback, row_callback, &tracker) != bytes_read) {
-				r = DATA_PARSING_ERROR;
-				break;
-			}
-		}
-		csv_fini(&parser, field_callback, row_callback, &tracker);	
-		fclose(fp);
+	if(csv_parse(&parser, buffer, len, field_callback, row_callback, &tracker) != len) {
+		r = DATA_PARSING_ERROR;
 	}
+	csv_fini(&parser, field_callback, row_callback, &tracker);
 	csv_free(&parser);
 	if(r == DATA_OK) {
 		*root = tracker.list;
 	}
 	return r;
+}
+ 
+void free_share_value_list(share_value_t* root) {
+	while(root != NULL) {
+		share_value_t* temp = root;
+		root = root->next;
+		free(temp);
+	}	
 }

@@ -21,9 +21,12 @@ typedef struct share_value {
 
 /**
  * Parses file of share daily values and creates linked list of share_value_t
- * @param file_path Path to file which contains daily share value
+ * @param buffer In memory buffer of share file 
+ * @param len Lenght of memory buffer
  * @param root Linked list will be created to this pointer
  *
  * @return Returns DATA_OK if successfull, anything else is an error.
  */
-int parse_file(const char* file_path, share_value_t** root);
+int parse_file(char* buffer, size_t len, share_value_t** root);
+
+void free_share_value_list(share_value_t* root);
