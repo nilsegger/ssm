@@ -16,6 +16,7 @@
 #include "download.h"
 #include "data.h"
 #include "db.h"
+#include "csv_parser.h"
 
 int prepare_database(const char* db_file, sqlite3** db) {
 	char* sql_err_msg = 0;
@@ -34,8 +35,24 @@ int prepare_database(const char* db_file, sqlite3** db) {
 	return EXIT_SUCCESS;
 }
 
-int main(int argc, char** argv) {
+void next(char** data) {
+	for(int i = 0; i < 3; i++) {
+		printf("%i: %s\t", i, data[i]);
+	}
+	printf("\n");
+}
 
+int main(int argc, char** argv) {
+	
+	size_t field_indices[] = {0, 1, 2};
+	parse_args_t csv_args = {',', 3, field_indices, &next, true, 0, 0, NULL};	
+	int r = parse_file(argv[1], &csv_args);
+	if(r) {
+		fprintf(stderr, "Failed to parse csv with code %i\n", r);
+		return EXIT_FAILURE;	
+	}
+
+	return EXIT_SUCCESS;
 	if(argc != 4) {
 		fprintf(stderr, "Usage: ./yc [REFERENCE_FILE] [SAVE_FOLDER] [DB_FILE]\n");
 		return EXIT_FAILURE;

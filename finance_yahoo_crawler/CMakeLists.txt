@@ -16,6 +16,7 @@ add_executable(${PROJECT_NAME}
 	src/download.c
 	src/data.c
 	src/db.c
+	src/csv_parser.c
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE include ${SQLite3_INCLUDE_DIRS})
