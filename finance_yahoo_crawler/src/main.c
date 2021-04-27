@@ -5,21 +5,44 @@
 
 #include <stdio.h>
 #include <stdint.h>
+#include <unistd.h>
 #include <string.h>
 #include <time.h>
-#include <unistd.h>
 #include <pthread.h>
+
+#include <sqlite3.h>
 
 #include "valor.h" 
 #include "download.h"
 #include "data.h"
+#include "db.h"
+
+int prepare_database(const char* db_file, sqlite3** db) {
+	char* sql_err_msg = 0;
+	int sql_rc = sqlite3_open_v2(db_file, db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_NOFOLLOW, NULL);
+	if(sql_rc) {
+		fprintf(stderr, "Unable to open \"%s\" database %s\n", db_file, sqlite3_errmsg(*db));
+		return EXIT_FAILURE;
+	} 
+
+	sql_rc = create_table(*db, CREATE_SHARE_REFERENCES_TABLE);
+	if(!sql_rc) sql_rc = create_table(*db, CREATE_DAILY_SHARE_VALUE_TALBE);
+	if(sql_rc) {
+		sqlite3_close(*db);
+		return EXIT_FAILURE;
+	}
+	return EXIT_SUCCESS;
+}
 
 int main(int argc, char** argv) {
 
-	if(argc != 3) {
-		fprintf(stderr, "Usage: ./yc [REFERENCE_FILE] [SAVE_FOLDER]\n");
-		return -1;
+	if(argc != 4) {
+		fprintf(stderr, "Usage: ./yc [REFERENCE_FILE] [SAVE_FOLDER] [DB_FILE]\n");
+		return EXIT_FAILURE;
 	}
+
+	sqlite3* db = NULL;
+	if(prepare_database(argv[3], &db) == EXIT_FAILURE) return EXIT_FAILURE;	
 
 	valor_symbol_t* valor_symbol = NULL;
 	uint8_t ec = find_valors(argv[1], &valor_symbol);
@@ -64,5 +87,6 @@ int main(int argc, char** argv) {
 	}
 
 	
+	sqlite3_close(db);
 	return 0;
 }
