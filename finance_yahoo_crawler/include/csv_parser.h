@@ -13,7 +13,8 @@ typedef struct csv_easy_parse_args {
 	const char delim;
 	size_t fields_count;
 	size_t* fields_indices;
-	void (*next)(char**);
+	void (*next)(struct csv_easy_parse_args*);
+	void* custom;
 	bool is_header;
 	size_t field_index;
 	size_t next_field_index;

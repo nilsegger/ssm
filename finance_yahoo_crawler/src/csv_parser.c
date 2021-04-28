@@ -24,7 +24,7 @@ void csv_row_callback(int c, void* data){
 	csv_easy_parse_args_t* args = data;	
 
 	if(!args->is_header) {
-		args->next(args->field_data);
+		args->next(args);
 		for(size_t i = 0; i < args->next_field_index; i++) {
 			if(args->field_data[i] == NULL) break;
 			free(args->field_data[i]);

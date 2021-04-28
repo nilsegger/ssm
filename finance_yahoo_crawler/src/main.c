@@ -15,6 +15,7 @@
 #include "download.h"
 #include "db.h"
 #include "csv_parser.h"
+#include "references/six_stock_references.h"
 
 int main(int argc, char** argv) {
 	int c;
@@ -23,12 +24,17 @@ int main(int argc, char** argv) {
 	const char db_file[256];
 	memset((void*)db_file, 0, 256);
 
+	const char six_reference_file[256];
+	memset((void*)six_reference_file, 0, 256);
+
+	memset((void*)db_file, 0, 256);
 	while (1) {
 		int this_option_optind = optind ? optind : 1;
 		int option_index = 0;
 		static struct option long_options[] = {
-			{"prepare",     no_argument, 0, 'p'},
-			{"db",  required_argument,       0,  'd'},
+			{"prepare", no_argument, 0, 'p'},
+			{"db", required_argument, 0,  'd'},
+			{"six-reference",  required_argument, 0, 's'},
 			/*{"delete",  required_argument, 0,  0 },
 			{"verbose", no_argument,       0,  0 },
 			{"create",  required_argument, 0, 'c'},
@@ -53,6 +59,9 @@ int main(int argc, char** argv) {
 				break;
 			case 'd':
 				strcpy((char*)db_file, optarg);
+				break;
+			case 's':
+				strcpy((char*)six_reference_file, optarg);
 				break;
 			case '?':
 				break;
@@ -79,6 +88,11 @@ int main(int argc, char** argv) {
 	}
 	if(prepare_db && prepare_database(db) == 1) {
 		fprintf(stderr, "Failed to prepare database.\n");
+		exit(EXIT_FAILURE);
+	}
+
+	if(six_reference_file[0] != 0 && six_stock_parse_reference(six_reference_file, db)) {
+		fprintf(stderr, "Failed to parse six stock reference file.\n");
 		exit(EXIT_FAILURE);
 	}
 	
