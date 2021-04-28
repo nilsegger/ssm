@@ -40,7 +40,24 @@ void print_sql_error(const char* operation, sqlite3* db, int rc);
 
 int create_table(sqlite3* db, const char* sql_stmt);
 
+/**
+ * Opens database for read and write operations.
+ *
+ * @param db_file SQL File to write to
+ * @param db Address of pointer to store database to.
+ *
+ * @returns 0 for success or 1 for failure 
+ */
+int open_database(const char* db_file, sqlite3** db);
 
+/**
+ * Prepares all tables used by this program.
+ *
+ * @param db Pointer to database.
+ *
+ * @returns 0 for success or 1 for failure 
+ */
+int prepare_database(sqlite3* db);
 
 
 

@@ -12,9 +12,7 @@ find_package(SQLite3 REQUIRED VERSION 3.3)
 
 add_executable(${PROJECT_NAME} 
 	src/main.c
-	src/valor.c
 	src/download.c
-	src/data.c
 	src/db.c
 	src/csv_parser.c
 )

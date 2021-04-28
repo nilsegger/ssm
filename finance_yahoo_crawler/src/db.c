@@ -25,3 +25,22 @@ int create_table(sqlite3* db, const char* sql_stmt) {
 	return rc;
 }
 
+int open_database(const char* db_file, sqlite3** db) {
+	char* sql_err_msg = 0;
+	int sql_rc = sqlite3_open_v2(db_file, db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_NOFOLLOW, NULL);
+	if(sql_rc) {
+		fprintf(stderr, "Unable to open \"%s\" database %s\n", db_file, sqlite3_errmsg(*db));
+		return 1;
+	}
+	return 0;
+}
+
+int prepare_database(sqlite3* db) {
+	int sql_rc = create_table(db, CREATE_SHARE_REFERENCES_TABLE);
+	if(!sql_rc) sql_rc = create_table(db, CREATE_DAILY_SHARE_VALUE_TALBE);
+	if(sql_rc) {
+		sqlite3_close(db);
+		return 1;
+	}
+	return 0;
+}

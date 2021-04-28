@@ -5,104 +5,82 @@
 
 #include <stdio.h>
 #include <stdint.h>
-#include <unistd.h>
 #include <string.h>
-#include <time.h>
-#include <pthread.h>
+#include <unistd.h>
+#include <stdbool.h>
+#include <getopt.h>
 
 #include <sqlite3.h>
 
-#include "valor.h" 
 #include "download.h"
-#include "data.h"
 #include "db.h"
 #include "csv_parser.h"
 
-int prepare_database(const char* db_file, sqlite3** db) {
-	char* sql_err_msg = 0;
-	int sql_rc = sqlite3_open_v2(db_file, db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_NOFOLLOW, NULL);
-	if(sql_rc) {
-		fprintf(stderr, "Unable to open \"%s\" database %s\n", db_file, sqlite3_errmsg(*db));
-		return EXIT_FAILURE;
-	} 
-
-	sql_rc = create_table(*db, CREATE_SHARE_REFERENCES_TABLE);
-	if(!sql_rc) sql_rc = create_table(*db, CREATE_DAILY_SHARE_VALUE_TALBE);
-	if(sql_rc) {
-		sqlite3_close(*db);
-		return EXIT_FAILURE;
-	}
-	return EXIT_SUCCESS;
-}
-
-void next(char** data) {
-	for(int i = 0; i < 3; i++) {
-		printf("%i: %s\t", i, data[i]);
-	}
-	printf("\n");
-}
-
 int main(int argc, char** argv) {
-	
-	size_t field_indices[] = {0, 1, 2};
-	csv_easy_parse_args_t csv_args = {',', 3, field_indices, &next};	
-	int r = csv_easy_parse_file(argv[1], &csv_args);
-	if(r) {
-		fprintf(stderr, "Failed to parse csv with code %i\n", r);
-		return EXIT_FAILURE;	
+	int c;
+
+	bool prepare_db = false;
+	const char db_file[256];
+	memset((void*)db_file, 0, 256);
+
+	while (1) {
+		int this_option_optind = optind ? optind : 1;
+		int option_index = 0;
+		static struct option long_options[] = {
+			{"prepare",     no_argument, 0, 'p'},
+			{"db",  required_argument,       0,  'd'},
+			/*{"delete",  required_argument, 0,  0 },
+			{"verbose", no_argument,       0,  0 },
+			{"create",  required_argument, 0, 'c'},
+			{"file",    required_argument, 0,  0 },*/
+			{0,         0,                 0,  0 }
+		};
+
+		c = getopt_long(argc, argv, "abc:d:012", long_options, &option_index);
+
+		if (c == -1)
+			break;
+
+		switch (c) {
+			case 0:
+				printf("option %s", long_options[option_index].name);
+				if (optarg)
+					printf(" with arg %s", optarg);
+				printf("\n");
+				break;
+			case 'p':
+				prepare_db = true;
+				break;
+			case 'd':
+				strcpy((char*)db_file, optarg);
+				break;
+			case '?':
+				break;
+			default:
+				printf("?? getopt returned character code 0%o ??\n", c);
+		}
 	}
 
-	return EXIT_SUCCESS;
-	if(argc != 4) {
-		fprintf(stderr, "Usage: ./yc [REFERENCE_FILE] [SAVE_FOLDER] [DB_FILE]\n");
-		return EXIT_FAILURE;
+	if (optind < argc) {
+		printf("non-option ARGV-elements: ");
+		while (optind < argc)
+			printf("%s ", argv[optind++]);
+		printf("\n");
+		exit(EXIT_FAILURE);
 	}
 
 	sqlite3* db = NULL;
-	if(prepare_database(argv[3], &db) == EXIT_FAILURE) return EXIT_FAILURE;	
-
-	valor_symbol_t* valor_symbol = NULL;
-	uint8_t ec = find_valors(argv[1], &valor_symbol);
-	if(ec == VALOR_OK) {
-		for(valor_symbol_t* iter = valor_symbol; iter != NULL; iter = iter->next) {
-			char url[2048];
-			const char template[] = "https://query1.finance.yahoo.com/v7/finance/download/%s.SW?period1=%lu&period2=%lu&interval=1d&events=history&includeAdjustedClose=true";
-			sprintf(url, template, iter->symbol, (uint64_t)iter->first_day, (uint64_t)time(NULL));
-
-			memory_struct_t chunk;
-			pthread_t share_parse_thread_id;
-			if(download_file(url, &chunk) != DOWNLOAD_OK) {
-				printf("Failed to download %s\n\t%s\n", iter->symbol, url);
-				continue;
-			} 
-			char file[255];
-			const char file_template[] = "%s/%s.SW.csv";
-			sprintf(file, file_template, argv[2], iter->symbol);
-			FILE* fp = fopen(file, "w");
-			fwrite(chunk.memory, sizeof(char), chunk.size, fp);
-			fclose(fp);
-
-			parse_share_file_args_t share_args = {chunk.memory, chunk.size, NULL};
-			pthread_create(&share_parse_thread_id, NULL, parse_share_file, &share_args);
-				
-			sleep(1);
-			pthread_join(share_parse_thread_id, NULL);
-			if(share_args.result == DATA_OK) {
-				for(share_value_t* iter = share_args.root; iter != NULL; iter = iter->next) {
-					printf("%lu;%f;%f;%f;%lu\n", iter->date_timestamp, iter->close, iter->high, iter->low, iter->volume);
-				}
-				free_share_value_list(share_args.root);
-			} else {
-				fprintf(stderr, "Failed to parse data of %s. Code: %i\n.", file, share_args.result);
-			}
-			free(chunk.memory);
-			break;
-		}
-		free_valor_symbols(valor_symbol);
-	} else {
-		fprintf(stderr, "Failed finding valor symbols with code: %d\n", ec);	
+	if(db_file[0] == 0) {
+		fprintf(stderr, "Required options missing. --db <path to database file>\n");
+		exit(EXIT_FAILURE);
+	} 
+	if(open_database(db_file, &db)) {
+		exit(EXIT_FAILURE);
 	}
-
+	if(prepare_db && prepare_database(db) == 1) {
+		fprintf(stderr, "Failed to prepare database.\n");
+		exit(EXIT_FAILURE);
+	}
 	
 	sqlite3_close(db);
 	return 0;
