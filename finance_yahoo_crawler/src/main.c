@@ -45,8 +45,8 @@ void next(char** data) {
 int main(int argc, char** argv) {
 	
 	size_t field_indices[] = {0, 1, 2};
-	parse_args_t csv_args = {',', 3, field_indices, &next, true, 0, 0, NULL};	
-	int r = parse_file(argv[1], &csv_args);
+	csv_easy_parse_args_t csv_args = {',', 3, field_indices, &next};	
+	int r = csv_easy_parse_file(argv[1], &csv_args);
 	if(r) {
 		fprintf(stderr, "Failed to parse csv with code %i\n", r);
 		return EXIT_FAILURE;	
