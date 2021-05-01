@@ -30,3 +30,14 @@ typedef struct csv_easy_parse_args {
  * @returns Returns 0 if successful.
  */
 int csv_easy_parse_file(const char* file_path, csv_easy_parse_args_t* args);
+
+/**
+ * Reads from memory and parses as csv.
+ *
+ * @param memory Memory pointer
+ * @param size Size of memory 
+ * @param args parse_args_t* Options for parsing. 
+ *
+ * @returns Returns 0 if successful.
+ */
+int csv_easy_parse_memory(char* memory, size_t size, csv_easy_parse_args_t* args);

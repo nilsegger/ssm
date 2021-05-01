@@ -6,6 +6,7 @@
 typedef struct MemoryStruct {
   char *memory;
   size_t size;
+  long response_code;
 } memory_struct_t;
 
 /**
@@ -18,7 +19,3 @@ typedef struct MemoryStruct {
  */
 int download_file(const char* url, memory_struct_t* chunk);
 
-/**
- * Frees a memory struct.
- */
-void free_memory_struct(memory_struct_t* chunk);

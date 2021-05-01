@@ -1,99 +1,113 @@
-/**
- * Code for parsing .csv files of stock value and simultaniously inserting it into db.
- * It will be run in separate thread while main thread is waiting one sec in order to not overload finance.yahoo.com
- */
-#include <stdbool.h>
-
-#include <csv.h>
+#include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
 
+// https://stackoverflow.com/questions/15334558/compiler-gets-warnings-when-using-strptime-function-c
+#define __USE_XOPEN
+#define _GNU_SOURCE
+#include <time.h>
+
+#include "csv_parser.h"
+#include "download.h"
+#include "db.h"
+
+#include "references/six_stock_references.h"
 #include "data.h"
 
-#define CSV_BUFFER_SIZE 1024
+typedef struct data_container {
+	sqlite3* db;
+	const char* isin;
+} data_container_t;
 
-#define FAILED_TO_PARSE_DATE 1 
+void stock_daily_data_download_callback(csv_easy_parse_args_t* args) {
+	data_container_t* container = args->custom;
+	const char* insert_stmt = "INSERT INTO daily_stock_values(id, isin, date, high_price, low_price, closing_price, volume) VALUES (NULL, ?, ?, ?, ?, ?, ?);";
+	sqlite3_stmt* stmt = NULL;
+	int ec = sqlite3_prepare_v2(container->db, insert_stmt, -1, &stmt, NULL);
+	if(ec) {
+		fprintf(stderr, "Failed to prepare insert daily stock value for %s. ", container->isin);
+		print_sql_error("Insert", container->db, ec);
+	} else {
+		ec = sqlite3_bind_text(stmt, 1, container->isin, strlen(container->isin) * sizeof(char), NULL);
 
-typedef struct csv_tracker {
-	bool is_header;
-	uint8_t error;
-	long unsigned fields;
-	share_value_t* list;
-	share_value_t* current;
-} csv_tracker_t;
-
-share_value_t* malloc_share_value(share_value_t** ptr) {
-	(*ptr) = malloc(sizeof(share_value_t));
-	(*ptr)->date_timestamp = 0;
-	(*ptr)->close = 0;
-	(*ptr)->high = 0;
-	(*ptr)->low = 0;
-	(*ptr)->volume = 0;
-	(*ptr)->next = NULL;
-	return *ptr;
-}
-
-void field_callback(void* s, size_t len, void* data) {
-	csv_tracker_t * tracker = (csv_tracker_t*)data;
-	if(tracker->is_header) {
-	       	return; // Skip header row
-	} else if(tracker->fields == 0) {
-		if(tracker->list == NULL) {
-			malloc_share_value(&tracker->list);
-			tracker->current = tracker->list;
-		} else if(tracker->current != NULL) {
-			malloc_share_value(&(tracker->current->next));
-			tracker->current = tracker->current->next;
-		}
+		time_t date = 0;
 		struct tm time = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-		if(strptime(s, "%Y-%m-%d", &time) != NULL) {
-			tracker->current->date_timestamp = mktime(&time);
+		if(strptime(args->field_data[0], "%Y-%m-%d", &time) != NULL) {
+			date = mktime(&time);
 		} else {
-			fprintf(stderr, "Failed to parse datetime.\n");
-			tracker->error = FAILED_TO_PARSE_DATE;
+			fprintf(stderr, "Failed to parse date of row in %s.\n", container->isin);
+			sqlite3_finalize(stmt);
+			return;
 		}
-	} else if(tracker->fields == 2) {
-		tracker->current->high = atof(s);	
-	} else if(tracker->fields == 3) {
-		tracker->current->low = atof(s);	
-	} else if(tracker->fields == 4) {
-		tracker->current->close = atof(s);	
-	} else if(tracker->fields == 6) {
-		tracker->current->volume = atoll(s);	
+		ec = sqlite3_bind_int64(stmt, 2, date);
+		char* end_ptr;
+		ec = sqlite3_bind_double(stmt, 3, strtod(args->field_data[1], &end_ptr));
+		ec = sqlite3_bind_double(stmt, 4, strtod(args->field_data[2], &end_ptr));
+		ec = sqlite3_bind_double(stmt, 5, strtod(args->field_data[3], &end_ptr));
+		ec = sqlite3_bind_int64(stmt, 6, strtol(args->field_data[4], &end_ptr, 10));
+
+		if(ec) {
+			fprintf(stderr, "Failed to bind data for %s. ", container->isin);
+			print_sql_error("Insert", container->db, ec);
+		} 
+		if(!ec) {
+			ec = sqlite3_step(stmt);
+			if(ec != SQLITE_DONE) {
+				fprintf(stderr, "Failed to insert daily stock value of %s. ", container->isin);
+				print_sql_error("Insert", container->db, ec);
+			}
+		}
+		sqlite3_finalize(stmt);
 	}
-	tracker->fields++;
 }
 
-void row_callback(int c, void* data) {
-	csv_tracker_t * tracker = (csv_tracker_t*)data;
-	tracker->fields = 0;
-	tracker->is_header = false;
-}
+int download_stocks_daily_values(sqlite3* db, time_t start, time_t end) {
+	const char select_stmt[] = "SELECT source, isin, valor FROM stocks;";	
 
-void* parse_share_file(void* a) {
-	parse_share_file_args_t* args = a;
-	struct csv_parser parser;
-	args->result = DATA_OK;
-	csv_tracker_t tracker = {true, 0, 0, NULL};
-	if(csv_init(&parser, CSV_APPEND_NULL) != 0) {	
-		args->result = DATA_INIT_ERROR;
-		return NULL;
-	} 
-	csv_set_delim(&parser, ',');
-	if(csv_parse(&parser, args->buffer, args->len, field_callback, row_callback, &tracker) != args->len) {
-		args->result = DATA_PARSING_ERROR;
+	sqlite3_stmt* stmt = NULL;
+	int ec = sqlite3_prepare_v2(db, select_stmt, -1, &stmt, NULL);
+	if(ec) {
+		print_sql_error("Select stocks", db, ec);
+		return EXIT_FAILURE;
 	}
-	csv_fini(&parser, field_callback, row_callback, &tracker);
-	csv_free(&parser);
-	if(args->result == DATA_OK) {
-		args->root = tracker.list;
+
+	ec = sqlite3_step(stmt);
+	while(ec == SQLITE_ROW) {
+		const char* source = (const char*)sqlite3_column_text(stmt, 0);	
+		const char* isin = (const char*)sqlite3_column_text(stmt, 1);	
+		const char* valor = (const char*)sqlite3_column_text(stmt, 2);	
+		
+		char url[2048];
+		if(strcmp(source, "six") == 0) {
+			get_finance_yahoo_six_stock_url(valor, url, start, end);
+		}
+		memory_struct_t memory; 
+		if(download_file(url, &memory)) {
+			fprintf(stderr, "Failed to download file from %s.\n", url);
+			ec = sqlite3_step(stmt);
+			continue;
+		} else if(memory.response_code != 200) {
+			fprintf(stderr, "Received %lu from %s.", memory.response_code, url);
+		} else {
+			data_container_t container = {db, isin};
+			size_t field_indices[] = {0, 2, 3, 4, 6};
+			csv_easy_parse_args_t csv_args = {',', 5, field_indices, stock_daily_data_download_callback, (void*)&container};
+			if(csv_easy_parse_memory(memory.memory, memory.size, &csv_args)) {
+				fprintf(stderr, "Failed to parse from memory for file from %s.\n", url);
+			}
+		}
+
+		free(memory.memory);
+		ec = sqlite3_step(stmt);
+		ec = SQLITE_DONE;
+		sleep(1);
 	}
-	return NULL;
-}
- 
-void free_share_value_list(share_value_t* root) {
-	while(root != NULL) {
-		share_value_t* temp = root;
-		root = root->next;
-		free(temp);
-	}	
+	if(ec != SQLITE_DONE) {
+		print_sql_error("reading stocks rows", db, ec);
+		sqlite3_finalize(stmt);
+		return EXIT_FAILURE;
+	}
+	sqlite3_finalize(stmt);
+	return EXIT_SUCCESS;
 }

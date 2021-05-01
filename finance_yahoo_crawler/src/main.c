@@ -5,6 +5,7 @@
 
 #include <stdio.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <stdbool.h>
@@ -12,10 +13,35 @@
 
 #include <sqlite3.h>
 
+// https://stackoverflow.com/questions/15334558/compiler-gets-warnings-when-using-strptime-function-c
+#define __USE_XOPEN
+#define _GNU_SOURCE
+#include <time.h>
+
 #include "download.h"
 #include "db.h"
 #include "csv_parser.h"
 #include "references/six_stock_references.h"
+#include "data.h"
+
+int parse_date_optarg(const char* input, time_t *buffer) {
+	if(strcmp(input, "today") == 0) {
+		*buffer = (time_t)time(NULL);
+		return EXIT_SUCCESS;
+	} else if(strcmp(input, "first") == 0) {
+		*buffer = 0;
+		return EXIT_SUCCESS;
+	} else {
+		struct tm time = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+		if(strptime(input, "%d-%m-%Y", &time) != NULL) {
+			*buffer  = mktime(&time);
+			return EXIT_SUCCESS;
+		} else {
+			return EXIT_FAILURE;
+		}
+	}
+}
+
 
 int main(int argc, char** argv) {
 	int c;
@@ -27,25 +53,47 @@ int main(int argc, char** argv) {
 	const char six_reference_file[256];
 	memset((void*)six_reference_file, 0, 256);
 
-	memset((void*)db_file, 0, 256);
+	bool download_stocks = false;
+	time_t date_start = -1;
+	time_t date_end = -1;
+
 	while (1) {
 		int this_option_optind = optind ? optind : 1;
 		int option_index = 0;
 		static struct option long_options[] = {
-			{"prepare", no_argument, 0, 'p'},
-			{"db", required_argument, 0,  'd'},
-			{"six-reference",  required_argument, 0, 's'},
-			/*{"delete",  required_argument, 0,  0 },
-			{"verbose", no_argument,       0,  0 },
-			{"create",  required_argument, 0, 'c'},
-			{"file",    required_argument, 0,  0 },*/
-			{0,         0,                 0,  0 }
+			{"prepare", no_argument, 0, 0},
+			{"db-file", required_argument, 0,  0},
+			{"six-reference",  required_argument, 0, 0},
+			{"download-stocks",  no_argument, 0, 0},
+			{"date-start",  required_argument, 0, 0},
+			{"date-end",  required_argument, 0, 0},
+			{0, 0, 0, 0}
 		};
 
 		c = getopt_long(argc, argv, "abc:d:012", long_options, &option_index);
 
 		if (c == -1)
 			break;
+		const char* option = long_options[option_index].name;
+		if(strcmp(option, "prepare") == 0) {
+			prepare_db = true;
+		} else if(strcmp(option, "db-file") == 0) {
+			strcpy((char*)db_file, optarg);
+		} else if(strcmp(option, "six-reference") == 0) {
+			strcpy((char*)six_reference_file, optarg);
+		} else if(strcmp(option, "download-stocks") == 0) {
+			download_stocks = true;
+		} else if(strcmp(option, "date-start") == 0) {
+			if(parse_date_optarg(optarg, &date_start) == EXIT_FAILURE) {
+				fprintf(stderr, "Failed to parse date of date-start.\n");
+				exit(EXIT_FAILURE);
+			}
+		} else if(strcmp(option, "date-end") == 0) {
+			if(parse_date_optarg(optarg, &date_end) == EXIT_FAILURE) {
+				fprintf(stderr, "Failed to parse date of date-end.\n");
+				exit(EXIT_FAILURE);
+			}
+		}
 
 		switch (c) {
 			case 0:
@@ -53,15 +101,6 @@ int main(int argc, char** argv) {
 				if (optarg)
 					printf(" with arg %s", optarg);
 				printf("\n");
-				break;
-			case 'p':
-				prepare_db = true;
-				break;
-			case 'd':
-				strcpy((char*)db_file, optarg);
-				break;
-			case 's':
-				strcpy((char*)six_reference_file, optarg);
 				break;
 			case '?':
 				break;
@@ -94,6 +133,18 @@ int main(int argc, char** argv) {
 	if(six_reference_file[0] != 0 && six_stock_parse_reference(six_reference_file, db)) {
 		fprintf(stderr, "Failed to parse six stock reference file.\n");
 		exit(EXIT_FAILURE);
+	}
+
+	if(download_stocks) {
+		if(date_start == -1 || date_end == -1) {
+			fprintf(stderr, "Please set --date-start and --date-end to use download_stocks.\n");
+			exit(EXIT_FAILURE);
+		}
+		
+		if(download_stocks_daily_values(db, date_start, date_end)) {
+			fprintf(stderr, "Failed to download stocks daily value.\n");
+			exit(EXIT_FAILURE);
+		}		
 	}
 	
 	sqlite3_close(db);

@@ -61,14 +61,7 @@ int parse(struct csv_parser* parser, csv_easy_parse_args_t* args, char* buffer, 
 	return 0;
 }
 
-int parse_memory(csv_easy_parse_args_t* args) {
-	struct csv_parser parser;
-
-	return 0;
-}
-
 int csv_easy_parse_file(const char* file_path, csv_easy_parse_args_t* args) {
-
 	FILE* fp = fopen(file_path, "rb");;
 	if(!fp) return CSV_FILE_NOT_FOUND;
 
@@ -85,3 +78,12 @@ int csv_easy_parse_file(const char* file_path, csv_easy_parse_args_t* args) {
 	return r;
 }
 
+int csv_easy_parse_memory(char* memory, size_t size, csv_easy_parse_args_t* args) {
+	struct csv_parser parser;
+	int r = parse_init(&parser, args);
+	if(r) return r;
+	r = parse(&parser, args, memory, size);
+	parse_fini(&parser, args);
+	return r;
+
+}

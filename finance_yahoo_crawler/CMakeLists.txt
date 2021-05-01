@@ -16,6 +16,7 @@ add_executable(${PROJECT_NAME}
 	src/db.c
 	src/csv_parser.c
 	src/references/six_stock_references.c
+	src/data.c
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE include ${SQLite3_INCLUDE_DIRS})

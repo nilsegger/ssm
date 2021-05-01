@@ -72,6 +72,7 @@ int download_file(const char* url, memory_struct_t* chunk) {
 	/* get it! */ 
 	res = curl_easy_perform(curl_handle);
 
+	curl_easy_getinfo (curl_handle, CURLINFO_RESPONSE_CODE, &chunk->response_code);
 	/* check for errors */ 
 	/*if(res != CURLE_OK) {
 		fprintf(stderr, "curl_easy_perform() failed: %s\n",
