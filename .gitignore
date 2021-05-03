@@ -1,8 +1,7 @@
-six_historical_prices_crawler/temp
-finance_yahoo_crawler/data/test
+data/test
 *.swp
-*/.cache/*
-*/build/*
+.cache/*
+build/*
 *.bak
-*/compile_commands.json
+compile_commands.json
 
