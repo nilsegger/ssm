@@ -1,7 +1,9 @@
+#include <curl/curl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <stdint.h>
 
 // https://stackoverflow.com/questions/15334558/compiler-gets-warnings-when-using-strptime-function-c
 #define __USE_XOPEN
@@ -115,8 +117,7 @@ void free_stock_daily_values_list(stock_daily_value_t* root) {
 	}
 }
 
-int download_stocks_daily_values(sqlite3* db, time_t start, time_t end) {
-
+int count_stocks(sqlite3* db, int64_t* count) {
 	const char select_count_stmt[] = "SELECT COUNT(id) FROM stocks;";	
 	sqlite3_stmt* count_stmt = NULL;
 	int ec = sqlite3_prepare_v2(db, select_count_stmt, -1, &count_stmt, NULL);
@@ -131,14 +132,22 @@ int download_stocks_daily_values(sqlite3* db, time_t start, time_t end) {
 		return EXIT_FAILURE;
 	}
 
-	int64_t stocks_count = 	sqlite3_column_int64(count_stmt, 0);
+	*count = sqlite3_column_int64(count_stmt, 0);
 	sqlite3_finalize(count_stmt);
+	return EXIT_SUCCESS;
+}
+
+int download_stocks_daily_values(sqlite3* db, const char* folder, time_t start, time_t end) {
+
+	int64_t stocks_count;	
+	if(count_stocks(db, &stocks_count) == EXIT_FAILURE) {
+		return EXIT_FAILURE;
+	}
 
 	printf("Counted %lu stocks.\n", stocks_count);
-
 	const char select_stmt[] = "SELECT source, isin, valor FROM stocks;";	
 	sqlite3_stmt* stmt = NULL;
-	ec = sqlite3_prepare_v2(db, select_stmt, -1, &stmt, NULL);
+	int ec = sqlite3_prepare_v2(db, select_stmt, -1, &stmt, NULL);
 	if(ec) {
 		print_sql_error("Select stocks", db, ec);
 		return EXIT_FAILURE;
@@ -164,7 +173,17 @@ int download_stocks_daily_values(sqlite3* db, time_t start, time_t end) {
 		} else if(memory.response_code != 200) {
 			fprintf(stderr, "Received %lu from %s.", memory.response_code, url);
 		} else {
-			data_container_t container = {db, isin, NULL, NULL};
+			const char file_name[256];
+			memset((void*)file_name, 0, 256);
+			const char template[] = "%s/%s.csv";
+			sprintf((char*)file_name, template, folder, isin);
+
+			FILE* fp = fopen(file_name, "w");
+			if(fwrite(memory.memory, sizeof(char),  memory.size, fp) != memory.size) {
+				fprintf(stderr, "Failed to write %ld to %s.\n", memory.size, file_name);
+			}
+			fclose(fp);
+			/* data_container_t container = {db, isin, NULL, NULL};
 			size_t field_indices[] = {0, 2, 3, 4, 6};
 			csv_easy_parse_args_t csv_args = {',', 5, field_indices, stock_daily_data_download_callback, (void*)&container};
 			if(csv_easy_parse_memory(memory.memory, memory.size, &csv_args)) {
@@ -174,16 +193,14 @@ int download_stocks_daily_values(sqlite3* db, time_t start, time_t end) {
 					fprintf(stderr, "Failed to insert daily stock values.\n");
 				}
 				free_stock_daily_values_list(container.root);
-			}
+			}*/
 		}
 
 		free(memory.memory);
 		ec = sqlite3_step(stmt);
 		printf("Finished \"%s\" %ld from %ld stocks.\n", isin, i, stocks_count);
-		/*free((void*)source);
-		free((void*)isin);
-		free((void*)valor);*/
 		i++;
+		usleep(300);
 	}
 	if(ec != SQLITE_DONE) {
 		print_sql_error("reading stocks rows", db, ec);
@@ -191,5 +208,55 @@ int download_stocks_daily_values(sqlite3* db, time_t start, time_t end) {
 		return EXIT_FAILURE;
 	}
 	sqlite3_finalize(stmt);
+	return EXIT_SUCCESS;
+}
+
+int select_isins(sqlite3* db, const char** isin) {
+	const char* isin_select = "SELECT isin FROM stocks;";
+	sqlite3_stmt* stmt = NULL;
+	int ec = sqlite3_prepare_v2(db, isin_select, -1, &stmt, NULL);
+	if(ec) {
+		print_sql_error("Select isins from stocks", db, ec);
+		return EXIT_FAILURE;
+	}
+
+	int64_t i = 0;
+	ec = sqlite3_step(stmt);
+	while(ec == SQLITE_ROW) {
+		const char* column_isin = (const char*)sqlite3_column_text(stmt, 0);
+		strcpy((char*)isin[i], (char*)column_isin);
+		i++;
+		ec = sqlite3_step(stmt);
+	}
+	if(ec != SQLITE_DONE) {
+		print_sql_error("reading isin from stocks", db, ec);
+		sqlite3_finalize(stmt);
+		return EXIT_FAILURE;
+	}
+	sqlite3_finalize(stmt);
+	return EXIT_SUCCESS;
+}
+
+int find_most_promising_future_averages(sqlite3* db, uint32_t compare_last_n_days, uint32_t average_future_of_n_stocks, uint32_t average_future_n_days_of_stocks) {
+	int64_t stocks_count;
+	if(count_stocks(db, &stocks_count) == EXIT_FAILURE) {
+		return EXIT_FAILURE;
+	}
+	const char** isin = calloc(stocks_count, sizeof(char*));
+	for(int i = 0; i < stocks_count; i++) {
+		isin[i] = malloc(sizeof(char) * 12 + 1); // isin has size of 12
+	}
+	if(select_isins(db, isin) == EXIT_FAILURE) {
+		return EXIT_FAILURE;
+	}
+
+	for(int i = 0; i < stocks_count; i++) {
+		const char* current_isin = isin[i];
+	}
+
+	for(int i = 0; i < stocks_count; i++) {
+		free((void*)isin[i]);
+	}
+	free(isin);
 	return EXIT_SUCCESS;
 }

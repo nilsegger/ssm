@@ -57,6 +57,11 @@ int main(int argc, char** argv) {
 	time_t date_start = -1;
 	time_t date_end = -1;
 
+	bool should_find_most_promising_future_averages = false;
+
+	const char data_folder[256];
+	memset((void*)data_folder, 0, 256);
+
 	while (1) {
 		int this_option_optind = optind ? optind : 1;
 		int option_index = 0;
@@ -67,6 +72,8 @@ int main(int argc, char** argv) {
 			{"download-stocks",  no_argument, 0, 0},
 			{"date-start",  required_argument, 0, 0},
 			{"date-end",  required_argument, 0, 0},
+			{"data-folder",  required_argument, 0, 0},
+			{"find-prom",  no_argument, 0, 0},
 			{0, 0, 0, 0}
 		};
 
@@ -93,6 +100,10 @@ int main(int argc, char** argv) {
 				fprintf(stderr, "Failed to parse date of date-end.\n");
 				exit(EXIT_FAILURE);
 			}
+		} else if(strcmp(option, "data-folder") == 0) {
+			strcpy((char*)data_folder, optarg);
+		} else if(strcmp(option, "find-prom") == 0) {
+			should_find_most_promising_future_averages = true;
 		}
 
 		switch (c) {
@@ -140,11 +151,22 @@ int main(int argc, char** argv) {
 			fprintf(stderr, "Please set --date-start and --date-end to use download_stocks.\n");
 			exit(EXIT_FAILURE);
 		}
+
+		if(data_folder[0] == 0) {
+			fprintf(stderr, "Please set --data-folder to use download_stocks.\n");
+			exit(EXIT_FAILURE);
+		}
 		
-		if(download_stocks_daily_values(db, date_start, date_end)) {
+		if(download_stocks_daily_values(db, data_folder, date_start, date_end)) {
 			fprintf(stderr, "Failed to download stocks daily value.\n");
 			exit(EXIT_FAILURE);
 		}		
+	}
+
+	if(should_find_most_promising_future_averages) {
+		if(find_most_promising_future_averages(db, 30, 15, 100) == EXIT_FAILURE) {
+			exit(EXIT_FAILURE);
+		}
 	}
 	
 	sqlite3_close(db);
