@@ -1,4 +1,8 @@
 #include <sqlite3.h>
+
+// https://stackoverflow.com/questions/15334558/compiler-gets-warnings-when-using-strptime-function-c
+#define __USE_XOPEN
+#define _GNU_SOURCE
 #include <time.h>
 
 /**
