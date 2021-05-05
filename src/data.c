@@ -131,7 +131,7 @@ int download_stocks_daily_values(sqlite3* db, const char* folder, time_t start, 
 			ec = sqlite3_step(stmt);
 			continue;
 		} else if(memory.response_code != 200) {
-			fprintf(stderr, "Received %lu from %s.", memory.response_code, url);
+			fprintf(stderr, "Received %lu from %s.\n", memory.response_code, url);
 		} else {
 			const char file_name[256];
 			get_stock_file_name(folder, isin, file_name);
@@ -190,7 +190,7 @@ int load_stock_data(const char* data_folder, const char* isin, stock_daily_value
 	size_t field_indices[] = {0, 2, 3, 4, 6};
 	csv_easy_parse_args_t csv_args = {',', 5, field_indices, load_stock_daily_values_callback, NULL};
 	if(csv_easy_parse_file(file_name, &csv_args)) {
-		fprintf(stderr, "Failed to load stock data.");
+		fprintf(stderr, "Failed to load stock data. File: %s.\n", file_name);
 		return EXIT_FAILURE;
 	}
 	*root = (stock_daily_value_t*)csv_args.custom;
@@ -213,7 +213,7 @@ int find_stock_starting_ptr(uint32_t compare_last_n_days, stock_daily_value_t* e
 	return EXIT_FAILURE;
 }
 
-double calculate_average_difference(stock_daily_value_t* start, stock_daily_value_t* other_start, stock_daily_value_t* other_end) {
+int calculate_average_difference(stock_daily_value_t* start, stock_daily_value_t* other_start, stock_daily_value_t* other_end, double* avg_result) {
 	/**
 	 * Problem with this function is that if there are not the same number of data entries between two dates, the function will return lower avg than they should be...
 	 */
@@ -226,6 +226,10 @@ double calculate_average_difference(stock_daily_value_t* start, stock_daily_valu
 	other_start = other_start->next;
 
 	while(other_start != other_end && start != NULL) {
+		if(start->prev->closing == 0.0 || start->closing == 0.0 || other_start->prev->closing == 0.0 || other_start->closing == 0.0) {
+			fprintf(stderr, "Invalid data received\n");
+			return EXIT_FAILURE;
+		}
 		double close_diff = (start->prev->closing / 100.0 * start->closing) - (other_start->prev->closing / 100.0 * other_start->closing);	
 		double high_diff = (start->prev->high / 100.0 * start->high) - (other_start->prev->high / 100.0 * other_start->high);	
 		double low_diff = (start->prev->low / 100.0 * start->low) - (other_start->prev->low / 100.0 * other_start->low);	
@@ -247,24 +251,26 @@ double calculate_average_difference(stock_daily_value_t* start, stock_daily_valu
 	avg_high_diff /= count;
 	avg_low_diff /= count;
 
-	double avg = (avg_close_diff * 0.5 + avg_high_diff * 0.25 + avg_low_diff * 0.25) / 3.0;
-
-	return avg;
+	*avg_result = (avg_close_diff + avg_high_diff + avg_low_diff);
+	
+	return EXIT_SUCCESS;
 }
 
 typedef struct stock_average {
-	stock_daily_value_t* start;
-	stock_daily_value_t* other_start;
-	stock_daily_value_t* other_end;
+	const char* cmp_isin;
+	const char* other_isin;
+	time_t cmp_start;
+	time_t other_start;
+	time_t other_end;
 	double avg;
 	struct stock_average* next;
 } stock_average_t;
 
-int find_closest_averages(stock_daily_value_t* start, stock_daily_value_t* other_end, uint32_t compare_last_n_days, uint32_t average_future_of_n_stocks, uint32_t average_future_n_days_of_stocks, stock_average_t** root) {
+int find_closest_averages(const char* isin, stock_daily_value_t* start, const char* other_isin, stock_daily_value_t* other_end, uint32_t compare_last_n_days, uint32_t average_future_of_n_stocks, uint32_t average_future_n_days_of_stocks, stock_average_t** root) {
 	uint64_t compare_last_n_seconds = compare_last_n_days * 24 * 60 * 60;
 	stock_daily_value_t* iter_start = other_end;
 	while(iter_start->prev != NULL) iter_start = iter_start->prev;
-	stock_daily_value_t* iter_end; // iter_start + compare_last_n_days
+	stock_daily_value_t* iter_end = iter_start; // iter_start + compare_last_n_days
 	stock_daily_value_t* iter_stop; // Ptr at which there are no longer enough future days
 	if(find_stock_starting_ptr(average_future_n_days_of_stocks, other_end, &iter_stop)) {
 		fprintf(stderr, "Unable to find stop pointer.\n");
@@ -282,12 +288,43 @@ int find_closest_averages(stock_daily_value_t* start, stock_daily_value_t* other
 	}
 	
 	while(iter_end != iter_stop) {
-		double avg = calculate_average_difference(start, iter_start, iter_end);
+		double avg;
+		if(calculate_average_difference(start, iter_start, iter_end, &avg)) {
+			fprintf(stderr, "Failed to calculate_average_difference between %s and %s. This only counts for a specific timeslot.\n", isin, other_isin);
+		} else {
+			stock_average_t* stock_avg = malloc(sizeof(stock_average_t));
+			stock_avg->avg = avg;
+			stock_avg->next = NULL;
+			stock_avg->cmp_isin = isin;
+			stock_avg->cmp_start = start->date;
+			stock_avg->other_isin = other_isin;
+			stock_avg->other_start = iter_start->date;
+			stock_avg->other_end = iter_end->date;
+			
+			if(*root == NULL) {
+				*root = stock_avg;
+			} else {
+				if(stock_avg->avg < (*root)->avg) {
+					stock_average_t* temp = *root;
+					*root = stock_avg;
+					stock_avg->next = temp;
+				} else {
+					bool insert_at_end = true;
+					stock_average_t* result_iter = *root;
+					for(; result_iter->next != NULL && insert_at_end; result_iter = result_iter->next) {
+						if(stock_avg->avg < result_iter->next->avg) {
+							insert_at_end = false;
+							stock_average_t* temp = result_iter->next;
+							result_iter->next = stock_avg;
+							stock_avg->next = temp;
+						}					
+					}
+				}
+			}
+		}
+	
 		iter_start = iter_start->next;
 		iter_end = iter_end->next;
-
-		// TODO create linked list of values	
-		
 	}	
 
 	return EXIT_SUCCESS;
@@ -306,6 +343,7 @@ int find_most_promising_future_averages(sqlite3* db, const char* data_folder, ui
 		return EXIT_FAILURE;
 	}
 
+
 	// Start comparing
 	for(int i = 0; i < stocks_count; i++) {
 		stock_daily_value_t* root_data_end;
@@ -321,6 +359,8 @@ int find_most_promising_future_averages(sqlite3* db, const char* data_folder, ui
 			free_stock_daily_values_list_reverse(root_data_end);
 			continue;
 		}
+		
+		stock_average_t* avg_result = NULL;
 
 		for(int j = 0; j < stocks_count; j++) {
 			if(i == j) continue; // Do not compare same stocks, obv
@@ -329,7 +369,53 @@ int find_most_promising_future_averages(sqlite3* db, const char* data_folder, ui
 				// Failed to read stock data, simply continue onto next one.
 				continue;
 			}
+
+			if(find_closest_averages(isin[i], start_root_data, isin[j], sub_data_end, compare_last_n_days, average_future_of_n_stocks, average_future_n_days_of_stocks, &avg_result)) {
+				fprintf(stderr, "Failed to find average for %s compared to %s.\n", isin[j], isin[i]);
+				continue;
+			}
+
+			// Clean up results, keep only first average_future_of_n_stocks # TODO keep multipel of same stock?
+			stock_average_t* result_iter = avg_result;	
+			stock_average_t* result_iter_prev = NULL;	
+			size_t result_count = 0;
+			while(result_iter != NULL) {
+				result_count++;
+				if(result_count > average_future_of_n_stocks) {
+					stock_average_t* temp = result_iter;
+					result_iter = result_iter->next;
+					free(temp);
+					result_iter_prev->next = NULL;
+				} else {
+					result_iter_prev = result_iter;
+					result_iter = result_iter->next;
+				}
+			}
 		}
+
+
+		stock_average_t* result_iter = avg_result;
+		while(result_iter != NULL) {
+			struct tm* info;
+			char cmp_date_start[11];
+			info = localtime(&result_iter->cmp_start);
+			strftime(cmp_date_start, 11, "%d/%m/%Y", info);
+
+			char other_date_start[11];
+			info = localtime(&result_iter->other_start);
+			strftime(other_date_start, 11, "%d/%m/%Y", info);
+
+			char other_date_end[11];
+			info = localtime(&result_iter->other_end);
+			strftime(other_date_end, 11, "%d/%m/%Y", info);
+
+		printf("%s compared with %s. Avg: %f. Cmp Start: %s Other Start %s Other End %s\n", result_iter->cmp_isin, result_iter->other_isin, result_iter->avg, cmp_date_start, other_date_start, other_date_end);	
+			stock_average_t* temp = result_iter;
+			result_iter = result_iter->next;
+			free(temp);
+		}
+
+		break;
 	}
 
 	for(int i = 0; i < stocks_count; i++) {
