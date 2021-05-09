@@ -62,7 +62,7 @@ int parse(struct csv_parser* parser, csv_easy_parse_args_t* args, char* buffer, 
 }
 
 int csv_easy_parse_file(const char* file_path, csv_easy_parse_args_t* args) {
-	FILE* fp = fopen(file_path, "rb");;
+	FILE* fp = fopen(file_path, "rb");
 	if(!fp) return CSV_FILE_NOT_FOUND;
 
 	struct csv_parser parser;
@@ -96,4 +96,10 @@ int csv_count_rows_file(const char* file_path, const char delim, size_t* rows) {
 	*rows = 0;
 	csv_easy_parse_args_t args = {delim, 0, NULL, csv_count_rows_callback, rows};
 	return csv_easy_parse_file(file_path, &args);
+}
+
+int csv_count_rows_memory(char* memory, size_t size, const char delim, size_t* rows) {
+	*rows = 0;
+	csv_easy_parse_args_t args = {delim, 0, NULL, csv_count_rows_callback, rows};
+	return csv_easy_parse_memory(memory, size, &args);
 }

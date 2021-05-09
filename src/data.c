@@ -49,9 +49,8 @@ void load_stocks_values_callback(csv_easy_parse_args_t* args) {
 
 		if(value->high != 0.0 && value->low != 0.0 && value->closing != 0.0) {
 			container->len++;
-			//DEBUG("parsed high, low and closing of %s: \"%s\" \"%s\" \"%s\" \"%s\"\n", stock->isin, args->field_data[1], args->field_data[2], args->field_data[3], args->field_data[4]);
 		} else {
-			//DEBUG("Failed to parse high, low or closing of %s: \"%s\" \"%s\" \"%s\" \"%s\"\n", stock->isin, args->field_data[1], args->field_data[2], args->field_data[3], args->field_data[4]);
+			DEBUG("Failed to parse high, low or closing of %s: \"%s\" \"%s\" \"%s\" \"%s\"\n", stock->isin, args->field_data[1], args->field_data[2], args->field_data[3], args->field_data[4]);
 		}
 	} else {
 		DEBUG("Failed to parse date for %s: \"%s\"\n", stock->isin, args->field_data[0]);
@@ -251,7 +250,6 @@ int prepare_stocks(sqlite3* db, const char* data_folder) {
 	load_stocks_values(stocks, stocks_count, data_folder);
 
 	for(size_t i = 0; i < stocks_count; i++) {
-		// isin will always be loaded at this point
 		free((void*)stocks[i].isin);
 		if(stocks[i].loaded) {
 			free(stocks[i].vals);

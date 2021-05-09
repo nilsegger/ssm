@@ -53,3 +53,15 @@ int csv_easy_parse_memory(char* memory, size_t size, csv_easy_parse_args_t* args
  * @returns 0 on Success
  */
 int csv_count_rows_file(const char* file_path, const char delim, size_t* rows);
+
+/**
+ * Parses complete csv and counts rows.
+ *
+ * @param memory Memory to read from.
+ * @param size Memory size.
+ * @param delim Delimeter used by csv
+ * @param rows Pointer to size_t to write to. Is set to 0 at beginning.
+ *
+ * @returns 0 on Success
+ */
+int csv_count_rows_memory(char* memory, size_t size, const char delim, size_t* rows);
