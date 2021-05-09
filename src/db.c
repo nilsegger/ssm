@@ -3,10 +3,11 @@
 
 #include <sqlite3.h>
 
+#include "macro.h"
 #include "db.h"
 
-void print_sql_error(const char* operation, sqlite3* db, int rc) {
-	fprintf(stderr, "Failed \"%s\" with code %i. SQL Msg: %s\n", operation, rc, sqlite3_errmsg(db));
+void print_sql_error(sqlite3* db, int rc) {
+	DEBUG("SQL Code: %i, %s\n", rc, sqlite3_errmsg(db));
 }
 
 int create_table(sqlite3* db, const char* sql_stmt) {
@@ -20,7 +21,8 @@ int create_table(sqlite3* db, const char* sql_stmt) {
 		}
 	}
 	if(rc) {
-		print_sql_error("Create table", db, rc);
+		DEBUG("Failed to create table. ");
+		print_sql_error(db, rc);
 	}
 	return rc;
 }

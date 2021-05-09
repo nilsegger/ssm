@@ -11,7 +11,7 @@
 
 void csv_field_callback(void* s, size_t len, void* data) {
 	csv_easy_parse_args_t* args = data;	
-	if(!args->is_header && args->field_index == args->fields_indices[args->next_field_index]) {
+	if(args->fields_count > 0 && !args->is_header && args->field_index == args->fields_indices[args->next_field_index]) {
 		char** new_data_ptr = &(args->field_data[args->next_field_index]);
 		*new_data_ptr = malloc(len + 1);
 		strcpy(*new_data_ptr, s);
@@ -86,4 +86,14 @@ int csv_easy_parse_memory(char* memory, size_t size, csv_easy_parse_args_t* args
 	parse_fini(&parser, args);
 	return r;
 
+}
+
+void csv_count_rows_callback(csv_easy_parse_args_t* args) {
+	(*((size_t*)args->custom))++;
+}
+
+int csv_count_rows_file(const char* file_path, const char delim, size_t* rows) {
+	*rows = 0;
+	csv_easy_parse_args_t args = {delim, 0, NULL, csv_count_rows_callback, rows};
+	return csv_easy_parse_file(file_path, &args);
 }

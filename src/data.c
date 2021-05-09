@@ -7,61 +7,54 @@
 #include "download.h"
 #include "db.h"
 
+#include "macro.h"
 #include "references/six_stock_references.h"
 #include "data.h"
 
-typedef struct stock_daily_value {
+typedef struct stock_value {
 	time_t date;
-	double high, low, closing;
-	int64_t volume;
-	struct stock_daily_value* next;
-	struct stock_daily_value* prev;
-} stock_daily_value_t;
+	double closing, high, low;
+	uint64_t volume;
+} stock_value_t;
+
+typedef struct stock {
+	const char* isin;
+	stock_value_t* vals;
+	size_t vals_len;
+	bool loaded;
+} stock_t;
+
+typedef struct load_stock_container {
+	stock_t* stock;
+	size_t len; // len will contain count of how many rows were succesfully read
+} load_stock_container_t;
 
 /**
  * Parses high, low, closing, volume and date from csv and creates linked list to args->custom.
  */
-void load_stock_daily_values_callback(csv_easy_parse_args_t* args) {
-	stock_daily_value_t* value = malloc(sizeof(stock_daily_value_t));
-	value->next = NULL;
-	value->prev = NULL;
+void load_stocks_values_callback(csv_easy_parse_args_t* args) {
+	load_stock_container_t* container = args->custom;
+	stock_t* stock = container->stock;
+	stock_value_t* value = &stock->vals[container->len]; 
 
 	struct tm time = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 	if(strptime(args->field_data[0], "%Y-%m-%d", &time) != NULL) {
 		value->date = mktime(&time);
+
+		char* end_ptr;
+		value->high = strtod(args->field_data[1], &end_ptr);
+		value->low = strtod(args->field_data[2], &end_ptr);
+		value->closing = strtod(args->field_data[3], &end_ptr);
+		value->volume = strtol(args->field_data[4], &end_ptr, 10);
+
+		if(value->high != 0.0 && value->low != 0.0 && value->closing != 0.0) {
+			container->len++;
+			//DEBUG("parsed high, low and closing of %s: \"%s\" \"%s\" \"%s\" \"%s\"\n", stock->isin, args->field_data[1], args->field_data[2], args->field_data[3], args->field_data[4]);
+		} else {
+			//DEBUG("Failed to parse high, low or closing of %s: \"%s\" \"%s\" \"%s\" \"%s\"\n", stock->isin, args->field_data[1], args->field_data[2], args->field_data[3], args->field_data[4]);
+		}
 	} else {
-		fprintf(stderr, "Failed to parse date \"%s\".\n", args->field_data[0]);
-		value->date = -1;
-	}
-
-	char* end_ptr;
-	value->high = strtod(args->field_data[1], &end_ptr);
-	value->low = strtod(args->field_data[2], &end_ptr);
-	value->closing = strtod(args->field_data[3], &end_ptr);
-	value->volume = strtol(args->field_data[4], &end_ptr, 10);
-
-	if(args->custom == NULL) {
-		args->custom = value;
-	} else {
-		value->prev = args->custom;
-		((stock_daily_value_t*)args->custom)->next = value;
-		args->custom = value;
-	}
-}
-
-void free_stock_daily_values_list(stock_daily_value_t* root) {
-	while(root != NULL) {
-		stock_daily_value_t* temp = root;
-		root = root->next;
-		free(temp);
-	}
-}
-
-void free_stock_daily_values_list_reverse(stock_daily_value_t* end) {
-	while(end != NULL) {
-		stock_daily_value_t* temp = end;
-		end = end->prev;
-		free(temp);
+		DEBUG("Failed to parse date for %s: \"%s\"\n", stock->isin, args->field_data[0]);
 	}
 }
 
@@ -69,20 +62,18 @@ int count_stocks(sqlite3* db, int64_t* count) {
 	const char select_count_stmt[] = "SELECT COUNT(id) FROM stocks;";	
 	sqlite3_stmt* count_stmt = NULL;
 	int ec = sqlite3_prepare_v2(db, select_count_stmt, -1, &count_stmt, NULL);
-	if(ec) {
-		print_sql_error("Count stocks", db, ec);
-		return EXIT_FAILURE;
-	}
-	ec = sqlite3_step(count_stmt);
-	if(ec != SQLITE_ROW) {
-		print_sql_error("Count stocks step", db, ec);
+	if(!ec) {
+		ec = sqlite3_step(count_stmt);
+		if(ec == SQLITE_ROW) {
+			*count = sqlite3_column_int64(count_stmt, 0);
+			sqlite3_finalize(count_stmt);
+			return EXIT_SUCCESS; 
+		} 
 		sqlite3_finalize(count_stmt);
-		return EXIT_FAILURE;
 	}
-
-	*count = sqlite3_column_int64(count_stmt, 0);
-	sqlite3_finalize(count_stmt);
-	return EXIT_SUCCESS;
+	DEBUG("Failed to select count from stocks.\n");
+	print_sql_error(db, ec);
+	return EXIT_FAILURE;
 }
 
 /**
@@ -109,7 +100,8 @@ int download_stocks_daily_values(sqlite3* db, const char* folder, time_t start, 
 	sqlite3_stmt* stmt = NULL;
 	int ec = sqlite3_prepare_v2(db, select_stmt, -1, &stmt, NULL);
 	if(ec) {
-		print_sql_error("Select stocks", db, ec);
+		DEBUG("Failed to prepare sql stmt for selecting stocks.\n");
+		print_sql_error(db, ec);
 		return EXIT_FAILURE;
 	}
 
@@ -150,7 +142,7 @@ int download_stocks_daily_values(sqlite3* db, const char* folder, time_t start, 
 		usleep(300);
 	}
 	if(ec != SQLITE_DONE) {
-		print_sql_error("reading stocks rows", db, ec);
+		print_sql_error(db, ec);
 		sqlite3_finalize(stmt);
 		return EXIT_FAILURE;
 	}
@@ -158,269 +150,115 @@ int download_stocks_daily_values(sqlite3* db, const char* folder, time_t start, 
 	return EXIT_SUCCESS;
 }
 
-int select_isins(sqlite3* db, const char** isin) {
+
+/**
+ * Loads isin from database and copies it to stock_t
+ *
+ * @param db Database to read from
+ * @param stocks Stocks pointer to arr
+ *
+ * @returns 0 On success
+ */
+int load_stock_reference_data(sqlite3* db, stock_t* stocks) {
 	const char* isin_select = "SELECT isin FROM stocks;";
 	sqlite3_stmt* stmt = NULL;
 	int ec = sqlite3_prepare_v2(db, isin_select, -1, &stmt, NULL);
-	if(ec) {
-		print_sql_error("Select isins from stocks", db, ec);
-		return EXIT_FAILURE;
-	}
-
-	int64_t i = 0;
-	ec = sqlite3_step(stmt);
-	while(ec == SQLITE_ROW) {
-		const char* column_isin = (const char*)sqlite3_column_text(stmt, 0);
-		strcpy((char*)isin[i], (char*)column_isin);
-		i++;
+	if(!ec) {
+		int64_t i = 0;
 		ec = sqlite3_step(stmt);
-	}
-	if(ec != SQLITE_DONE) {
-		print_sql_error("reading isin from stocks", db, ec);
+		while(ec == SQLITE_ROW) {
+			const char* column_isin = (const char*)sqlite3_column_text(stmt, 0);
+			stocks[i].isin = malloc(sizeof(char) * (12 + 1));
+			strcpy((char*)stocks[i].isin, column_isin);
+			i++;
+			ec = sqlite3_step(stmt);
+		}
 		sqlite3_finalize(stmt);
+		if(ec != SQLITE_DONE) {
+			// free allocated memory, i has been keeping track of how many have been allocated
+			for(int j = 0; j < i; j++) {
+				free((void*)stocks[j].isin);
+			}	
+		}
+	}
+	if(ec && ec != SQLITE_DONE) {
+		DEBUG("Failed to select from stocks.\n");
+		print_sql_error(db, ec);
 		return EXIT_FAILURE;
 	}
-	sqlite3_finalize(stmt);
-	return EXIT_SUCCESS;
-}
-
-int load_stock_data(const char* data_folder, const char* isin, stock_daily_value_t** root) {
-	const char file_name[256];
-	get_stock_file_name(data_folder, isin, file_name);
-	size_t field_indices[] = {0, 2, 3, 4, 6};
-	csv_easy_parse_args_t csv_args = {',', 5, field_indices, load_stock_daily_values_callback, NULL};
-	if(csv_easy_parse_file(file_name, &csv_args)) {
-		fprintf(stderr, "Failed to load stock data. File: %s.\n", file_name);
-		return EXIT_FAILURE;
-	}
-	*root = (stock_daily_value_t*)csv_args.custom;
 	return EXIT_SUCCESS;
 }
 
 /**
- * Finds pointer of daily stock value which equals last_ptr - compare_last_n_days position.
+ * Loads all data from stocks from their representive csv files.
+ *
+ * @param stocks Pointer to stocks arr
+ * @param stocks_len Count of stocks
+ * @param data_folder location on drive where csv files are stored
  */
-int find_stock_starting_ptr(uint32_t compare_last_n_days, stock_daily_value_t* end, stock_daily_value_t** start) {
-	uint64_t compare_last_n_seconds = compare_last_n_days * 24 * 60 * 60;
-	stock_daily_value_t* iter = end->prev;
-	while(iter != NULL) {
-		if(iter->date < end->date - compare_last_n_seconds) {
-			*start = iter;
-			return EXIT_SUCCESS;
+void load_stocks_values(stock_t* stocks, size_t stocks_len, const char* data_folder) {
+	for(size_t i = 0; i < stocks_len; i++) {
+		char stock_file_name[256];
+		get_stock_file_name(data_folder, stocks[i].isin, stock_file_name);		
+
+
+		size_t row_count;
+		if(csv_count_rows_file(stock_file_name, ',', &row_count)) {
+			// no data has been allocated
+			DEBUG("Failed to load %s.\n", stock_file_name);
+			continue;
+		}	
+
+		// TODO check if there are enough rows (There must be atleast (comparing days + future averaging days)
+		stocks[i].vals = malloc(sizeof(stock_value_t) * row_count);	
+
+		load_stock_container_t container = {&stocks[i], 0};
+		size_t data_fields_indices[] = {0, 2, 3, 4, 6};
+		csv_easy_parse_args_t csv_args = {',', 5, data_fields_indices, load_stocks_values_callback, &container};
+		if(csv_easy_parse_file(stock_file_name, &csv_args)) {
+			DEBUG("Failed to parse %s.\n", stock_file_name);
+			free(stocks[i].vals);
+			continue;
 		}
-		iter = iter->prev;
+		stocks[i].loaded = true;
+		stocks[i].vals_len = container.len;
 	}
-	return EXIT_FAILURE;
 }
 
-int calculate_average_difference(stock_daily_value_t* start, stock_daily_value_t* other_start, stock_daily_value_t* other_end, double* avg_result) {
-	/**
-	 * Problem with this function is that if there are not the same number of data entries between two dates, the function will return lower avg than they should be...
-	 */
-	uint32_t count = 0;
-	double avg_close_diff = 0;
-	double avg_high_diff = 0;
-	double avg_low_diff = 0;
-
-	start = start->next;
-	other_start = other_start->next;
-
-	while(other_start != other_end && start != NULL) {
-		if(start->prev->closing == 0.0 || start->closing == 0.0 || other_start->prev->closing == 0.0 || other_start->closing == 0.0) {
-			fprintf(stderr, "Invalid data received\n");
-			return EXIT_FAILURE;
-		}
-		double close_diff = (start->prev->closing / 100.0 * start->closing) - (other_start->prev->closing / 100.0 * other_start->closing);	
-		double high_diff = (start->prev->high / 100.0 * start->high) - (other_start->prev->high / 100.0 * other_start->high);	
-		double low_diff = (start->prev->low / 100.0 * start->low) - (other_start->prev->low / 100.0 * other_start->low);	
-
-		// get rid of - or +
-		close_diff *= close_diff;
-		high_diff *= high_diff;
-		low_diff *= low_diff;
-
-		avg_close_diff += close_diff; 
-		high_diff += high_diff;
-		low_diff += low_diff;
-		count++;
-		other_start = other_start->next;
-		start = start->next;
-	}
-
-	avg_close_diff /= count;
-	avg_high_diff /= count;
-	avg_low_diff /= count;
-
-	*avg_result = (avg_close_diff + avg_high_diff + avg_low_diff);
-	
-	return EXIT_SUCCESS;
-}
-
-typedef struct stock_average {
-	const char* cmp_isin;
-	const char* other_isin;
-	time_t cmp_start;
-	time_t other_start;
-	time_t other_end;
-	double avg;
-	struct stock_average* next;
-} stock_average_t;
-
-int find_closest_averages(const char* isin, stock_daily_value_t* start, const char* other_isin, stock_daily_value_t* other_end, uint32_t compare_last_n_days, uint32_t average_future_of_n_stocks, uint32_t average_future_n_days_of_stocks, stock_average_t** root) {
-	uint64_t compare_last_n_seconds = compare_last_n_days * 24 * 60 * 60;
-	stock_daily_value_t* iter_start = other_end;
-	while(iter_start->prev != NULL) iter_start = iter_start->prev;
-	stock_daily_value_t* iter_end = iter_start; // iter_start + compare_last_n_days
-	stock_daily_value_t* iter_stop; // Ptr at which there are no longer enough future days
-	if(find_stock_starting_ptr(average_future_n_days_of_stocks, other_end, &iter_stop)) {
-		fprintf(stderr, "Unable to find stop pointer.\n");
-		return EXIT_FAILURE;
-	}
-	while(iter_end != NULL) {
-		if(iter_end->date > iter_start->date + compare_last_n_seconds) {
-			break;
-		}
-		iter_end = iter_end->next;
-	}
-	if(iter_end == NULL) {
-		fprintf(stderr, "There are not enough daily values for other.\n");
-		return EXIT_FAILURE;
-	}
-	
-	while(iter_end != iter_stop) {
-		double avg;
-		if(calculate_average_difference(start, iter_start, iter_end, &avg)) {
-			fprintf(stderr, "Failed to calculate_average_difference between %s and %s. This only counts for a specific timeslot.\n", isin, other_isin);
-		} else {
-			stock_average_t* stock_avg = malloc(sizeof(stock_average_t));
-			stock_avg->avg = avg;
-			stock_avg->next = NULL;
-			stock_avg->cmp_isin = isin;
-			stock_avg->cmp_start = start->date;
-			stock_avg->other_isin = other_isin;
-			stock_avg->other_start = iter_start->date;
-			stock_avg->other_end = iter_end->date;
-			
-			if(*root == NULL) {
-				*root = stock_avg;
-			} else {
-				if(stock_avg->avg < (*root)->avg) {
-					stock_average_t* temp = *root;
-					*root = stock_avg;
-					stock_avg->next = temp;
-				} else {
-					bool insert_at_end = true;
-					stock_average_t* result_iter = *root;
-					for(; result_iter->next != NULL && insert_at_end; result_iter = result_iter->next) {
-						if(stock_avg->avg < result_iter->next->avg) {
-							insert_at_end = false;
-							stock_average_t* temp = result_iter->next;
-							result_iter->next = stock_avg;
-							stock_avg->next = temp;
-						}					
-					}
-				}
-			}
-		}
-	
-		iter_start = iter_start->next;
-		iter_end = iter_end->next;
-	}	
-
-	return EXIT_SUCCESS;
-}
-
-int find_most_promising_future_averages(sqlite3* db, const char* data_folder, uint32_t compare_last_n_days, uint32_t average_future_of_n_stocks, uint32_t average_future_n_days_of_stocks) {
+/**
+ * Prepares stocks data for comparison.
+ */
+int prepare_stocks(sqlite3* db, const char* data_folder) {
+	// Count stocks and fetch each isin
 	int64_t stocks_count;
-	if(count_stocks(db, &stocks_count) == EXIT_FAILURE) {
-		return EXIT_FAILURE;
-	}
-	const char** isin = calloc(stocks_count, sizeof(char*));
-	for(int i = 0; i < stocks_count; i++) {
-		isin[i] = malloc(sizeof(char) * 12 + 1); // isin has size of 12
-	}
-	if(select_isins(db, isin) == EXIT_FAILURE) {
+	if(count_stocks(db, &stocks_count)) {
 		return EXIT_FAILURE;
 	}
 
+	stock_t* stocks = malloc(sizeof(stock_t) * stocks_count);
+	for(size_t i = 0; i < stocks_count; i++) {
+		stocks[i].loaded = false;
+		stocks[i].vals = NULL;
+		stocks[i].vals_len = 0;
+		stocks[i].isin = NULL;
+	}
+	
+	if(load_stock_reference_data(db, stocks)) {
+		free(stocks);
+		return EXIT_FAILURE;
+	}
+	
+	load_stocks_values(stocks, stocks_count, data_folder);
 
-	// Start comparing
-	for(int i = 0; i < stocks_count; i++) {
-		stock_daily_value_t* root_data_end;
-		
-		if(load_stock_data(data_folder, isin[i], &root_data_end)) {
-			// Failed to read stock data, simply continue onto next one.
-			continue;
+	for(size_t i = 0; i < stocks_count; i++) {
+		// isin will always be loaded at this point
+		free((void*)stocks[i].isin);
+		if(stocks[i].loaded) {
+			free(stocks[i].vals);
 		}
-
-		stock_daily_value_t* start_root_data; // ptr to root_data_end - compare_last_n_days
-		if(find_stock_starting_ptr(compare_last_n_days, root_data_end, &start_root_data)) {
-			fprintf(stderr, "Failed to find starting ptr to %s.\n", isin[i]);
-			free_stock_daily_values_list_reverse(root_data_end);
-			continue;
-		}
-		
-		stock_average_t* avg_result = NULL;
-
-		for(int j = 0; j < stocks_count; j++) {
-			if(i == j) continue; // Do not compare same stocks, obv
-			stock_daily_value_t* sub_data_end;
-			if(load_stock_data(data_folder, isin[j], &sub_data_end)) {
-				// Failed to read stock data, simply continue onto next one.
-				continue;
-			}
-
-			if(find_closest_averages(isin[i], start_root_data, isin[j], sub_data_end, compare_last_n_days, average_future_of_n_stocks, average_future_n_days_of_stocks, &avg_result)) {
-				fprintf(stderr, "Failed to find average for %s compared to %s.\n", isin[j], isin[i]);
-				continue;
-			}
-
-			// Clean up results, keep only first average_future_of_n_stocks # TODO keep multipel of same stock?
-			stock_average_t* result_iter = avg_result;	
-			stock_average_t* result_iter_prev = NULL;	
-			size_t result_count = 0;
-			while(result_iter != NULL) {
-				result_count++;
-				if(result_count > average_future_of_n_stocks) {
-					stock_average_t* temp = result_iter;
-					result_iter = result_iter->next;
-					free(temp);
-					result_iter_prev->next = NULL;
-				} else {
-					result_iter_prev = result_iter;
-					result_iter = result_iter->next;
-				}
-			}
-		}
-
-
-		stock_average_t* result_iter = avg_result;
-		while(result_iter != NULL) {
-			struct tm* info;
-			char cmp_date_start[11];
-			info = localtime(&result_iter->cmp_start);
-			strftime(cmp_date_start, 11, "%d/%m/%Y", info);
-
-			char other_date_start[11];
-			info = localtime(&result_iter->other_start);
-			strftime(other_date_start, 11, "%d/%m/%Y", info);
-
-			char other_date_end[11];
-			info = localtime(&result_iter->other_end);
-			strftime(other_date_end, 11, "%d/%m/%Y", info);
-
-		printf("%s compared with %s. Avg: %f. Cmp Start: %s Other Start %s Other End %s\n", result_iter->cmp_isin, result_iter->other_isin, result_iter->avg, cmp_date_start, other_date_start, other_date_end);	
-			stock_average_t* temp = result_iter;
-			result_iter = result_iter->next;
-			free(temp);
-		}
-
-		break;
 	}
 
-	for(int i = 0; i < stocks_count; i++) {
-		free((void*)isin[i]);
-	}
-	free(isin);
+	free(stocks);
 	return EXIT_SUCCESS;
 }
+

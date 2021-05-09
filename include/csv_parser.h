@@ -8,6 +8,7 @@
  * @param fields_count Amount of fields to extract
  * @param fields_indices Indices of fields to extract
  * @param next Callback function which is called everytime, a row has been read.
+ * @param custom Void pointer to whatever you whish
  */
 typedef struct csv_easy_parse_args {
 	const char delim;
@@ -41,3 +42,14 @@ int csv_easy_parse_file(const char* file_path, csv_easy_parse_args_t* args);
  * @returns Returns 0 if successful.
  */
 int csv_easy_parse_memory(char* memory, size_t size, csv_easy_parse_args_t* args);
+
+/**
+ * Parses complete csv and counts rows.
+ *
+ * @param file_path File to read from.
+ * @param delim Delimeter used by csv
+ * @param rows Pointer to size_t to write to. Is set to 0 at beginning.
+ *
+ * @returns 0 on Success
+ */
+int csv_count_rows_file(const char* file_path, const char delim, size_t* rows);

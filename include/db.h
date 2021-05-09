@@ -26,11 +26,10 @@ CREATE TABLE IF NOT EXISTS daily_stock_values(\
 /**
  * Prints sql error to stderr.
  *
- * @param operation Short descriptive name of operation which was unsucessful.
  * @param db Reference to sqlite3 database.
  * @param rc resulting code of unsuccesful operation.
  */
-void print_sql_error(const char* operation, sqlite3* db, int rc);
+void print_sql_error(sqlite3* db, int rc);
 
 /*
  * Creates table or returns unsuccessful error code.
