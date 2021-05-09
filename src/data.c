@@ -194,8 +194,10 @@ int load_stock_reference_data(sqlite3* db, stock_t* stocks) {
  * @param stocks Pointer to stocks arr
  * @param stocks_len Count of stocks
  * @param data_folder location on drive where csv files are stored
+ * @param compare_n_days Amount of days whilch will be compared
+ * @param average_future_n_days Amoung of days which will get averaged 
  */
-void load_stocks_values(stock_t* stocks, size_t stocks_len, const char* data_folder) {
+void load_stocks_values(stock_t* stocks, size_t stocks_len, const char* data_folder, size_t compare_n_days, size_t average_future_n_days) {
 	for(size_t i = 0; i < stocks_len; i++) {
 		char stock_file_name[256];
 		get_stock_file_name(data_folder, stocks[i].isin, stock_file_name);		
@@ -208,7 +210,10 @@ void load_stocks_values(stock_t* stocks, size_t stocks_len, const char* data_fol
 			continue;
 		}	
 
-		// TODO check if there are enough rows (There must be atleast (comparing days + future averaging days)
+		if(row_count < compare_n_days + average_future_n_days + 1) {
+			DEBUG("%s does not contain enough rows for comparing and averaging future.\n", stock_file_name);
+			continue;
+		}
 		stocks[i].vals = malloc(sizeof(stock_value_t) * row_count);	
 
 		load_stock_container_t container = {&stocks[i], 0};
@@ -224,10 +229,35 @@ void load_stocks_values(stock_t* stocks, size_t stocks_len, const char* data_fol
 	}
 }
 
+void find_similar_stock_trends(stock_t* current, stock_t* others, size_t others_len, size_t compare_n_days) {
+	// check if currents last compare_n_days are not spaced out in a longer time period
+	time_t week_in_s = 8 * 24 * 60 * 60; // using 8 for a little bit of space
+	for(size_t i = current->vals_len - compare_n_days; i < current->vals_len; i++) {
+		if(current->vals[i].date - week_in_s > current->vals[i - 1].date) {
+			// Last compare_n_days of current are not consecutive
+			DEBUG("Last %ld days of %s are not consecutive. %ld:%ld\n", compare_n_days, current->isin, current->vals[i].date, current->vals[i -1].date);
+			return;
+		}	
+	}
+	// start comparing
+	for(size_t i = 0; i < others_len; i++) {
+		stock_t* other = &others[i];
+		if(other == current || !other->loaded) continue;
+			
+		for(size_t j = 1; j < other->vals_len; j++) {
+			stock_value_t* current_val_prev = &current->vals[current->vals_len - 1 - compare_n_days + j];	
+			stock_value_t* current_val = &current->vals[current->vals_len - compare_n_days + j];	
+
+			stock_value_t* other_val_prev = &other->vals[j - 1];
+			stock_value_t* other_val = &other->vals[j];
+		}	
+	}
+}
+
 /**
  * Prepares stocks data for comparison.
  */
-int prepare_stocks(sqlite3* db, const char* data_folder) {
+int prepare_stocks(sqlite3* db, const char* data_folder, size_t compare_n_days, size_t average_future_n_days) {
 	// Count stocks and fetch each isin
 	int64_t stocks_count;
 	if(count_stocks(db, &stocks_count)) {
@@ -247,7 +277,15 @@ int prepare_stocks(sqlite3* db, const char* data_folder) {
 		return EXIT_FAILURE;
 	}
 	
-	load_stocks_values(stocks, stocks_count, data_folder);
+	load_stocks_values(stocks, stocks_count, data_folder, compare_n_days, average_future_n_days);
+
+	DEBUG("Loaded all data. Beginning with comparisons.\n");
+
+	for(size_t i = 0; i < stocks_count; i++) {
+		if(stocks[i].loaded) {
+			find_similar_stock_trends(&stocks[i], stocks, stocks_count, compare_n_days);
+		}
+	}
 
 	for(size_t i = 0; i < stocks_count; i++) {
 		free((void*)stocks[i].isin);
