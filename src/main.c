@@ -175,7 +175,7 @@ int main(int argc, char** argv) {
 			fprintf(stderr, "Missing arguments --date-folder and --out-folder.\n");
 			exit(EXIT_FAILURE);
 		}
-		else if(prepare_stocks(db, data_folder, out_folder, 5, 30, 30) == EXIT_FAILURE) {
+		else if(prepare_stocks(db, data_folder, out_folder, 5, 30, 30, 12) == EXIT_FAILURE) {
 			exit(EXIT_FAILURE);
 		}
 	}

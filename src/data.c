@@ -1,13 +1,14 @@
+#include <pthread.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
 #include <unistd.h> // usleep
 
+#include "macro.h"
 #include "csv_parser.h"
 #include "download.h"
 #include "db.h"
 
-#include "macro.h"
 #include "references/six_stock_references.h"
 #include "data.h"
 
@@ -41,6 +42,16 @@ typedef struct stock_future_trend_result {
 	double trend;
 	struct stock_future_trend_result* next;
 } stock_future_trend_result_t;
+
+typedef struct stock_thread_args {
+	stock_t* current;
+	stock_t* others;
+	size_t others_len, average_n_results, compare_n_days, average_future_n_days;
+       	stock_future_trend_result_t* result;
+	const char* out_folder;
+	bool done;
+	int return_code;
+} stock_thread_args_t;
 
 /**
  * Parses high, low, closing, volume and date from csv and creates linked list to args->custom.
@@ -340,31 +351,34 @@ void save_stock_average_results(stock_t* current, stock_comparison_result_t* res
 	}
 }
 
-int find_similar_stock_trends(stock_t* current, stock_t* others, size_t others_len, size_t average_n_results, size_t compare_n_days, size_t average_future_n_days, stock_future_trend_result_t** result, const char* out_folder) {
+void* find_similar_stock_trends(void* v) {
+	stock_thread_args_t* args = v;
 	// check if currents last compare_n_days are not spaced out in a longer time period
 	time_t week_in_s = 8 * 24 * 60 * 60; // using 8 for a little bit of space
-	for(size_t i = current->vals_len - compare_n_days; i < current->vals_len; i++) {
-		if(current->vals[i].date - week_in_s > current->vals[i - 1].date) {
+	for(size_t i = args->current->vals_len - args->compare_n_days; i < args->current->vals_len; i++) {
+		if(args->current->vals[i].date - week_in_s > args->current->vals[i - 1].date) {
 			// Last compare_n_days of current are not consecutive
-			DEBUG("Last %ld days of %s are not consecutive. %ld:%ld\n", compare_n_days, current->isin, current->vals[i].date, current->vals[i -1].date);
-			return EXIT_FAILURE;
+			DEBUG("Last %ld days of %s are not consecutive. %ld:%ld\n", args->compare_n_days, args->current->isin, args->current->vals[i].date, args->current->vals[i -1].date);
+			args->return_code = EXIT_FAILURE;
+			args->done = true;
+			return NULL;
 		}	
 	}
 
 	stock_comparison_result_t* results = NULL;
 	// start comparing
-	for(size_t i = 0; i < others_len; i++) {
-		stock_t* other = &others[i];
-		if(other == current || !other->loaded) continue;
+	for(size_t i = 0; i < args->others_len; i++) {
+		stock_t* other = &((args->others)[i]);
+		if(other == args->current || !other->loaded) continue;
 
-		DEBUG("%ld/%ld: Finding similar trend between %s and other %s.\n", i, others_len, current->isin, other->isin);
+		DEBUG("%ld/%ld: Finding similar trend between %s and other %s.\n", i, args->others_len, args->current->isin, other->isin);
 			
-		for(size_t j = 1; j < other->vals_len - compare_n_days - average_future_n_days; j++) {
+		for(size_t j = 1; j < other->vals_len - args->compare_n_days - args->average_future_n_days; j++) {
 			double avg = 0.0;
 			bool has_consecutive_days = true;
-			for(size_t k = 0; k < compare_n_days; k++) {
-				stock_value_t* current_val_prev = &current->vals[current->vals_len - 1 - compare_n_days + k];	
-				stock_value_t* current_val = &current->vals[current->vals_len - compare_n_days + k];
+			for(size_t k = 0; k < args->compare_n_days; k++) {
+				stock_value_t* current_val_prev = &args->current->vals[args->current->vals_len - 1 - args->compare_n_days + k];	
+				stock_value_t* current_val = &args->current->vals[args->current->vals_len - args->compare_n_days + k];
 
 				stock_value_t* other_val_prev = &other->vals[j + k - 1];
 				stock_value_t* other_val = &other->vals[j + k];
@@ -389,17 +403,17 @@ int find_similar_stock_trends(stock_t* current, stock_t* others, size_t others_l
 			}
 
 			if(has_consecutive_days) {
-				avg = avg / (double)compare_n_days;
+				avg = avg / (double)args->compare_n_days;
 				insert_comparison_result_into_sorted_list(&results, avg, other, j - 1);
 			}
 		}
 	}
 
 	double future_avg_trend;
-	int ec = stock_average_results_future_trend(results, average_n_results, compare_n_days, average_future_n_days, &future_avg_trend);
+	int ec = stock_average_results_future_trend(results, args->average_n_results, args->compare_n_days, args->average_future_n_days, &future_avg_trend);
 
 	if(!ec) {
-		save_stock_average_results(current, results, compare_n_days, out_folder);
+		save_stock_average_results(args->current, results, args->compare_n_days, args->out_folder);
 	}
 
 	// Free results in both cases, success and error
@@ -410,15 +424,20 @@ int find_similar_stock_trends(stock_t* current, stock_t* others, size_t others_l
 	}
 
 	if(ec) {
-		return EXIT_FAILURE;
+		args->return_code = EXIT_FAILURE;
+		args->done = true;
+		return NULL;
 	}
 	
-	*result = malloc(sizeof(stock_future_trend_result_t));
-	(*result)->next = NULL;
-	(*result)->stock = current;
-	(*result)->trend = future_avg_trend;
+	args->result = malloc(sizeof(stock_future_trend_result_t));
+	(args->result)->next = NULL;
+	(args->result)->stock = args->current;
+	(args->result)->trend = future_avg_trend;
 
-	return EXIT_SUCCESS;	
+	args->done = true;
+	args->return_code = EXIT_SUCCESS;
+
+	return NULL;
 }
 
 void insert_future_trend_results_sorted(stock_future_trend_result_t** results, stock_future_trend_result_t* future_trend) {
@@ -442,10 +461,25 @@ void insert_future_trend_results_sorted(stock_future_trend_result_t** results, s
 	}
 }
 
+void finish_thread(pthread_t* t, stock_thread_args_t* args, stock_future_trend_result_t** results, size_t* finished, size_t stocks_count) {
+	pthread_join(*t, NULL);	
+	if(!args->return_code) {
+		insert_future_trend_results_sorted(results, args->result);
+		DEBUG("Finished comparing %s. %ld/%ld\n", args->current->isin, *finished, stocks_count);
+	} else {
+		DEBUG("Failed to find similar stock trends for %s.\n", args->current->isin);
+	}
+	(*finished)++;
+	args->current = NULL;
+	args->result = NULL;
+	args->done = false;
+	args->return_code = 0;
+}
+
 /**
  * Prepares stocks data for comparison.
  */
-int prepare_stocks(sqlite3* db, const char* data_folder, const char* out_folder, size_t average_n_results, size_t compare_n_days, size_t average_future_n_days) {
+int prepare_stocks(sqlite3* db, const char* data_folder, const char* out_folder, size_t average_n_results, size_t compare_n_days, size_t average_future_n_days, size_t cores) {
 	// Count stocks and fetch each isin
 	int64_t stocks_count;
 	if(count_stocks(db, &stocks_count)) {
@@ -474,15 +508,55 @@ int prepare_stocks(sqlite3* db, const char* data_folder, const char* out_folder,
 
 	stock_future_trend_result_t* results = NULL;
 
+	pthread_t threads[cores];
+	stock_thread_args_t args[cores];
+	for(int i = 0; i < cores; i++) {
+		args[i].current = NULL;
+		args[i].result = NULL;
+		args[i].others = stocks;
+		args[i].others_len = stocks_count;
+		args[i].average_n_results = average_n_results;
+		args[i].compare_n_days = compare_n_days;
+		args[i].average_future_n_days = average_future_n_days;
+		args[i].out_folder = out_folder;
+		args[i].done = false;
+		args[i].return_code = 0;
+	}
+
+	size_t stocks_finished = 0;
 	for(size_t i = 0; i < stocks_count; i++) {
-		if(stocks[i].loaded) {
-			stock_future_trend_result_t* future_trend = NULL;
-			if(find_similar_stock_trends(&stocks[i], stocks, stocks_count, average_n_results, compare_n_days, average_future_n_days, &future_trend, out_folder)) {
-				DEBUG("Failed to find similar stock trends for %s.\n", stocks[i].isin);
-				continue;
-			}
-			insert_future_trend_results_sorted(&results, future_trend);
-			DEBUG("Finished comparing %s. %ld/%ld\n", stocks[i].isin, i + 1, stocks_count);
+
+		if(!stocks[i].loaded) {
+			stocks_finished++;
+		       	continue;
+		}
+
+		bool found_free_thread = false;
+		while(!found_free_thread) {
+			// find free thread
+			for(int c = 0; c < cores && !found_free_thread; c++) {
+				bool free_core = args[c].current == NULL;
+				if(!free_core && !args[c].done) {
+					continue;	
+				} else if(!free_core && args[c].done) {
+					finish_thread(&threads[c], &args[c], &results, &stocks_finished, stocks_count);
+					args[c].current = &stocks[i];
+					pthread_create(&threads[c], NULL, find_similar_stock_trends, (void*)&args[c]);
+					found_free_thread = true;
+				} else {
+					// first time use of core
+					args[c].current = &stocks[i];
+					pthread_create(&threads[c], NULL, find_similar_stock_trends, (void*)&args[c]);
+					found_free_thread = true;
+				}
+			}	
+			if(!found_free_thread) sleep(1);
+		}
+	}
+
+	for(int i = 0; i < cores; i++) {
+		if(args[i].current != NULL && !args[i].done) {
+			finish_thread(&threads[i], &args[i], &results, &stocks_finished, stocks_count);
 		}
 	}
 
