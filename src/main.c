@@ -62,6 +62,9 @@ int main(int argc, char** argv) {
 	const char data_folder[256];
 	memset((void*)data_folder, 0, 256);
 
+	const char out_folder[256];
+	memset((void*)out_folder, 0, 256);
+
 	while (1) {
 		int this_option_optind = optind ? optind : 1;
 		int option_index = 0;
@@ -73,6 +76,7 @@ int main(int argc, char** argv) {
 			{"date-start",  required_argument, 0, 0},
 			{"date-end",  required_argument, 0, 0},
 			{"data-folder",  required_argument, 0, 0},
+			{"out-folder",  required_argument, 0, 0},
 			{"find-prom",  no_argument, 0, 0},
 			{0, 0, 0, 0}
 		};
@@ -102,6 +106,9 @@ int main(int argc, char** argv) {
 			}
 		} else if(strcmp(option, "data-folder") == 0) {
 			strcpy((char*)data_folder, optarg);
+		
+		} else if(strcmp(option, "out-folder") == 0) {
+			strcpy((char*)out_folder, optarg);
 		} else if(strcmp(option, "find-prom") == 0) {
 			should_find_most_promising_future_averages = true;
 		}
@@ -164,7 +171,11 @@ int main(int argc, char** argv) {
 	}
 
 	if(should_find_most_promising_future_averages) {
-		if(prepare_stocks(db, data_folder, 5, 30, 30) == EXIT_FAILURE) {
+		if(*data_folder == 0 || *out_folder == 0) {
+			fprintf(stderr, "Missing arguments --date-folder and --out-folder.\n");
+			exit(EXIT_FAILURE);
+		}
+		else if(prepare_stocks(db, data_folder, out_folder, 5, 30, 30) == EXIT_FAILURE) {
 			exit(EXIT_FAILURE);
 		}
 	}

@@ -63,7 +63,7 @@ void load_stocks_values_callback(csv_easy_parse_args_t* args) {
 		if(value->high != 0.0 && value->low != 0.0 && value->closing != 0.0) {
 			container->len++;
 		} else {
-			DEBUG("Failed to parse high, low or closing of %s: \"%s\" \"%s\" \"%s\" \"%s\"\n", stock->isin, args->field_data[1], args->field_data[2], args->field_data[3], args->field_data[4]);
+			//DEBUG("Failed to parse high, low or closing of %s: \"%s\" \"%s\" \"%s\" \"%s\"\n", stock->isin, args->field_data[1], args->field_data[2], args->field_data[3], args->field_data[4]);
 		}
 	} else {
 		DEBUG("Failed to parse date for %s: \"%s\"\n", stock->isin, args->field_data[0]);
@@ -308,7 +308,39 @@ void insert_comparison_result_into_sorted_list(stock_comparison_result_t** resul
 	(*results_ptr)->next = next;
 }
 
-int find_similar_stock_trends(stock_t* current, stock_t* others, size_t others_len, size_t average_n_results, size_t compare_n_days, size_t average_future_n_days, stock_future_trend_result_t** result) {
+
+void save_stock_average_results(stock_t* current, stock_comparison_result_t* results, size_t compare_n_days, const char* out_folder) {
+	const char file_path[256];
+	get_stock_file_name(out_folder, current->isin, file_path);
+
+	FILE* fp = fopen(file_path, "a");
+	if(fp) {
+		fprintf(fp, "ISIN,StartDate,EndDate,OtherISIN,OtherStartDate,OtherEndDate,AverageDifference\n");
+		size_t count = 0;
+		for(stock_comparison_result_t* iter = results; iter != NULL; iter = iter->next) {
+			char start_date[11];
+			strftime(start_date, 11, "%d-%m-%Y", localtime(&current->vals[current->vals_len - compare_n_days - 1].date));
+			char end_date[11];
+			strftime(end_date, 11, "%d-%m-%Y", localtime(&current->vals[current->vals_len - 1].date));
+			char other_start_date[11];
+			strftime(other_start_date, 11, "%d-%m-%Y", localtime(&iter->other->vals[iter->other_start_index].date));
+			char other_end_date[11];
+			strftime(other_end_date, 11, "%d-%m-%Y", localtime(&iter->other->vals[iter->other_start_index + compare_n_days].date));
+			fprintf(fp, "%s,%s,%s,%s,%s,%s,%f\n", current->isin, start_date, end_date, iter->other->isin, other_start_date, other_end_date, iter->average_difference);
+
+			// TODO remove hardcoded 25
+			if(count == 25) {
+				break;
+			}
+			count++;
+		}
+		fclose(fp);
+	} else{
+		DEBUG("Failed to open file %s for writing.\n", file_path);
+	}
+}
+
+int find_similar_stock_trends(stock_t* current, stock_t* others, size_t others_len, size_t average_n_results, size_t compare_n_days, size_t average_future_n_days, stock_future_trend_result_t** result, const char* out_folder) {
 	// check if currents last compare_n_days are not spaced out in a longer time period
 	time_t week_in_s = 8 * 24 * 60 * 60; // using 8 for a little bit of space
 	for(size_t i = current->vals_len - compare_n_days; i < current->vals_len; i++) {
@@ -324,6 +356,8 @@ int find_similar_stock_trends(stock_t* current, stock_t* others, size_t others_l
 	for(size_t i = 0; i < others_len; i++) {
 		stock_t* other = &others[i];
 		if(other == current || !other->loaded) continue;
+
+		DEBUG("%ld/%ld: Finding similar trend between %s and other %s.\n", i, others_len, current->isin, other->isin);
 			
 		for(size_t j = 1; j < other->vals_len - compare_n_days - average_future_n_days; j++) {
 			double avg = 0.0;
@@ -338,7 +372,7 @@ int find_similar_stock_trends(stock_t* current, stock_t* others, size_t others_l
 				if(other_val->date - week_in_s > other_val_prev->date) {
 					// days are not consecutive, and hence shouldnt really be checked
 					// setting j to k skips the non consecutive days
-					DEBUG("Found non consecutive days in %s. %lu:%lu\n", other->isin, other_val->date, other_val_prev->date); 
+					// DEBUG("Found non consecutive days in %s. %lu:%lu\n", other->isin, other_val->date, other_val_prev->date); 
 					j = j + k;
 					has_consecutive_days = false;
 					break;
@@ -358,19 +392,20 @@ int find_similar_stock_trends(stock_t* current, stock_t* others, size_t others_l
 				avg = avg / (double)compare_n_days;
 				insert_comparison_result_into_sorted_list(&results, avg, other, j - 1);
 			}
+			break;
 		}
-
 	}
 
-	// TODO
-	
 	double future_avg_trend;
 	int ec = stock_average_results_future_trend(results, average_n_results, compare_n_days, average_future_n_days, &future_avg_trend);
+
+	if(!ec) {
+		save_stock_average_results(current, results, compare_n_days, out_folder);
+	}
 
 	// Free results in both cases, success and error
 	for(stock_comparison_result_t* iter = results; iter != NULL;) {
 		stock_comparison_result_t* temp = iter;
-		DEBUG("%s difference to %s is %f. Date start %ld, other start %ld other end %ld\n", current->isin, temp->other->isin, temp->average_difference, current->vals[current->vals_len - compare_n_days].date, temp->other->vals[temp->other_start_index].date, temp->other->vals[temp->other_start_index + compare_n_days].date);
 		iter = iter->next;
 		free(temp);
 	}
@@ -411,7 +446,7 @@ void insert_future_trend_results_sorted(stock_future_trend_result_t** results, s
 /**
  * Prepares stocks data for comparison.
  */
-int prepare_stocks(sqlite3* db, const char* data_folder, size_t average_n_results, size_t compare_n_days, size_t average_future_n_days) {
+int prepare_stocks(sqlite3* db, const char* data_folder, const char* out_folder, size_t average_n_results, size_t compare_n_days, size_t average_future_n_days) {
 	// Count stocks and fetch each isin
 	int64_t stocks_count;
 	if(count_stocks(db, &stocks_count)) {
@@ -443,21 +478,37 @@ int prepare_stocks(sqlite3* db, const char* data_folder, size_t average_n_result
 	for(size_t i = 0; i < stocks_count; i++) {
 		if(stocks[i].loaded) {
 			stock_future_trend_result_t* future_trend = NULL;
-			if(find_similar_stock_trends(&stocks[i], stocks, stocks_count, average_n_results, compare_n_days, average_future_n_days, &future_trend)) {
+			if(find_similar_stock_trends(&stocks[i], stocks, stocks_count, average_n_results, compare_n_days, average_future_n_days, &future_trend, out_folder)) {
 				DEBUG("Failed to find similar stock trends for %s.\n", stocks[i].isin);
 				continue;
 			}
 			insert_future_trend_results_sorted(&results, future_trend);
+			DEBUG("Finished comparing %s. %ld/%ld\n", stocks[i].isin, i + 1, stocks_count);
 		}
 	}
 
+	const char result_file_path[256];
+	get_stock_file_name(out_folder, "result", result_file_path);
+	FILE* fp = fopen(result_file_path, "a");
+	if(fp) {
+		fprintf(fp, "ISIN,StartDate,EndDate,Trend\n");
+		for(stock_future_trend_result_t* iter = results; iter != NULL; iter = iter->next) {
+			char start_date[11];
+			strftime(start_date, 11, "%d-%m-%Y", localtime(&iter->stock->vals[iter->stock->vals_len - compare_n_days - 1].date));
+			char end_date[11];
+			strftime(end_date, 11, "%d-%m-%Y", localtime(&iter->stock->vals[iter->stock->vals_len - 1].date));
+			fprintf(fp, "%s,%s,%s,%f\n", iter->stock->isin, start_date, end_date, iter->trend);
+		}
+		fclose(fp);
+	} else {
+		DEBUG("Failed to open results file for writing %s.\n", result_file_path);
+	}
+
 	for(stock_future_trend_result_t* iter = results; iter != NULL; ) {
-		DEBUG("%s future average trend is %f.\n", iter->stock->isin, iter->trend);
 		stock_future_trend_result_t* temp = iter;
 		iter = iter->next;
 		free(temp);	
 	}
-
 	for(size_t i = 0; i < stocks_count; i++) {
 		free((void*)stocks[i].isin);
 		if(stocks[i].loaded) {

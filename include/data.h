@@ -19,4 +19,4 @@
  */
 int download_stocks_daily_values(sqlite3* db, const char* folder, time_t start, time_t end);
 
-int prepare_stocks(sqlite3* db, const char* data_folder, size_t average_n_results, size_t compare_n_days, size_t average_future_n_days);
+int prepare_stocks(sqlite3* db, const char* data_folder, const char* out_folder, size_t average_n_results, size_t compare_n_days, size_t average_future_n_days);
