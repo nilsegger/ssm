@@ -164,7 +164,7 @@ int main(int argc, char** argv) {
 	}
 
 	if(should_find_most_promising_future_averages) {
-		if(prepare_stocks(db, data_folder, 30, 30) == EXIT_FAILURE) {
+		if(prepare_stocks(db, data_folder, 5, 30, 30) == EXIT_FAILURE) {
 			exit(EXIT_FAILURE);
 		}
 	}

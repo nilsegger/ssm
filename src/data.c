@@ -29,6 +29,19 @@ typedef struct load_stock_container {
 	size_t len; // len will contain count of how many rows were succesfully read
 } load_stock_container_t;
 
+typedef struct stock_comparison_result {
+	stock_t* other;
+	size_t other_start_index;
+	double average_difference;
+	struct stock_comparison_result* next;
+} stock_comparison_result_t;
+
+typedef struct stock_future_trend_result {
+	stock_t* stock;
+	double trend;
+	struct stock_future_trend_result* next;
+} stock_future_trend_result_t;
+
 /**
  * Parses high, low, closing, volume and date from csv and creates linked list to args->custom.
  */
@@ -229,41 +242,183 @@ void load_stocks_values(stock_t* stocks, size_t stocks_len, const char* data_fol
 	}
 }
 
-void find_similar_stock_trends(stock_t* current, stock_t* others, size_t others_len, size_t compare_n_days) {
+/**
+ * Iterates over average_n_results and averages their future trends together.
+ *
+ */
+int stock_average_results_future_trend(stock_comparison_result_t* results, size_t average_n_results, size_t compare_n_days, size_t average_future_n_days, double* result) {
+	double average = 0.0;
+	for(size_t i = 1; i < average_future_n_days; i++) {
+		double daily_average = 0.0;
+
+		stock_comparison_result_t* iter = results;
+		for(size_t j = 0; j < average_n_results; j++) {
+
+			stock_value_t* prev_value = &iter->other->vals[iter->other_start_index + compare_n_days + i - 1];
+			stock_value_t* value = &iter->other->vals[iter->other_start_index + compare_n_days + i];		
+
+			daily_average += (100.0 / prev_value->closing * value->closing) - 100.0;
+
+			if(iter->next == NULL) {
+				DEBUG("There are not enough results.");
+				return EXIT_FAILURE;
+			}
+			iter = iter->next;
+		}	
+		daily_average /= average_n_results;
+		average += daily_average;
+	}
+	*result = average;
+	return EXIT_SUCCESS;
+}
+
+
+double calculate_average_difference(double prev, double current, double other_prev, double other) {
+	return (100.0 / prev * current - 100.0) - (100.0 / other_prev * other - 100.0);
+}
+
+void insert_comparison_result_into_sorted_list(stock_comparison_result_t** results, double average_difference, stock_t* other, size_t other_start_index) {
+	// insert new stock_comparison_result_t into sorted linked list, smallest avg at beg
+	stock_comparison_result_t** results_ptr = NULL;
+	stock_comparison_result_t* next = NULL;
+	if(*results == NULL) {
+		results_ptr = results;
+	} else {
+		if((*results)->average_difference > average_difference) {
+			next = *results;
+			results_ptr = results;
+		} else {
+			for(stock_comparison_result_t* iter = *results; iter != NULL; iter = iter->next) {
+				if(iter->next == NULL) {
+					results_ptr = &iter->next;
+					break;
+				} else if(iter->next->average_difference > average_difference) {
+					results_ptr = &iter->next;
+					next = iter->next;
+					break;
+				}
+			}
+		}
+	}
+	
+	*results_ptr = malloc(sizeof(stock_comparison_result_t));
+	(*results_ptr)->average_difference = average_difference;
+	(*results_ptr)->other = other;
+	(*results_ptr)->other_start_index = other_start_index;
+	(*results_ptr)->next = next;
+}
+
+int find_similar_stock_trends(stock_t* current, stock_t* others, size_t others_len, size_t average_n_results, size_t compare_n_days, size_t average_future_n_days, stock_future_trend_result_t** result) {
 	// check if currents last compare_n_days are not spaced out in a longer time period
 	time_t week_in_s = 8 * 24 * 60 * 60; // using 8 for a little bit of space
 	for(size_t i = current->vals_len - compare_n_days; i < current->vals_len; i++) {
 		if(current->vals[i].date - week_in_s > current->vals[i - 1].date) {
 			// Last compare_n_days of current are not consecutive
 			DEBUG("Last %ld days of %s are not consecutive. %ld:%ld\n", compare_n_days, current->isin, current->vals[i].date, current->vals[i -1].date);
-			return;
+			return EXIT_FAILURE;
 		}	
 	}
+
+	stock_comparison_result_t* results = NULL;
 	// start comparing
 	for(size_t i = 0; i < others_len; i++) {
 		stock_t* other = &others[i];
 		if(other == current || !other->loaded) continue;
 			
-		for(size_t j = 1; j < other->vals_len; j++) {
-			stock_value_t* current_val_prev = &current->vals[current->vals_len - 1 - compare_n_days + j];	
-			stock_value_t* current_val = &current->vals[current->vals_len - compare_n_days + j];	
+		for(size_t j = 1; j < other->vals_len - compare_n_days - average_future_n_days; j++) {
+			double avg = 0.0;
+			bool has_consecutive_days = true;
+			for(size_t k = 0; k < compare_n_days; k++) {
+				stock_value_t* current_val_prev = &current->vals[current->vals_len - 1 - compare_n_days + k];	
+				stock_value_t* current_val = &current->vals[current->vals_len - compare_n_days + k];
 
-			stock_value_t* other_val_prev = &other->vals[j - 1];
-			stock_value_t* other_val = &other->vals[j];
-		}	
+				stock_value_t* other_val_prev = &other->vals[j + k - 1];
+				stock_value_t* other_val = &other->vals[j + k];
+
+				if(other_val->date - week_in_s > other_val_prev->date) {
+					// days are not consecutive, and hence shouldnt really be checked
+					// setting j to k skips the non consecutive days
+					DEBUG("Found non consecutive days in %s. %lu:%lu\n", other->isin, other_val->date, other_val_prev->date); 
+					j = j + k;
+					has_consecutive_days = false;
+					break;
+				}
+
+				//DEBUG("Current len %ld index %ld\n", current->vals_len, current->vals_len - compare_n_days + k);
+				//DEBUG("Other len %ld index %ld\n", other->vals_len, j + k);
+
+				double avg_close = calculate_average_difference(current_val_prev->closing, current_val->closing, other_val_prev->closing, other_val->closing);
+				double avg_high = calculate_average_difference(current_val_prev->high, current_val->high, other_val_prev->high, other_val->high);
+				double avg_low = calculate_average_difference(current_val_prev->low, current_val->low, other_val_prev->low, other_val->low);
+
+				avg += (avg_close * avg_close + avg_high * avg_high + avg_low * avg_low) / 3.0;
+			}
+
+			if(has_consecutive_days) {
+				avg = avg / (double)compare_n_days;
+				insert_comparison_result_into_sorted_list(&results, avg, other, j - 1);
+			}
+		}
+
+	}
+
+	// TODO
+	
+	double future_avg_trend;
+	int ec = stock_average_results_future_trend(results, average_n_results, compare_n_days, average_future_n_days, &future_avg_trend);
+
+	// Free results in both cases, success and error
+	for(stock_comparison_result_t* iter = results; iter != NULL;) {
+		stock_comparison_result_t* temp = iter;
+		DEBUG("%s difference to %s is %f. Date start %ld, other start %ld other end %ld\n", current->isin, temp->other->isin, temp->average_difference, current->vals[current->vals_len - compare_n_days].date, temp->other->vals[temp->other_start_index].date, temp->other->vals[temp->other_start_index + compare_n_days].date);
+		iter = iter->next;
+		free(temp);
+	}
+
+	if(ec) {
+		return EXIT_FAILURE;
+	}
+	
+	*result = malloc(sizeof(stock_future_trend_result_t));
+	(*result)->next = NULL;
+	(*result)->stock = current;
+	(*result)->trend = future_avg_trend;
+
+	return EXIT_SUCCESS;	
+}
+
+void insert_future_trend_results_sorted(stock_future_trend_result_t** results, stock_future_trend_result_t* future_trend) {
+	if(*results == NULL) {
+		*results = future_trend;
+	} else if((*results)->trend < future_trend->trend) {
+		stock_future_trend_result_t* temp = *results;
+		*results = future_trend;
+		future_trend->next = temp;
+	} else {
+		for(stock_future_trend_result_t* iter = *results; iter != NULL; iter = iter->next) {
+			if(iter->next == NULL) {
+				iter->next = future_trend;
+				break;
+			} else if(iter->next->trend < future_trend->trend) {
+				future_trend->next = iter->next;
+				iter->next = future_trend;
+				break;
+			}
+		}
 	}
 }
 
 /**
  * Prepares stocks data for comparison.
  */
-int prepare_stocks(sqlite3* db, const char* data_folder, size_t compare_n_days, size_t average_future_n_days) {
+int prepare_stocks(sqlite3* db, const char* data_folder, size_t average_n_results, size_t compare_n_days, size_t average_future_n_days) {
 	// Count stocks and fetch each isin
 	int64_t stocks_count;
 	if(count_stocks(db, &stocks_count)) {
 		return EXIT_FAILURE;
 	}
 
+	// initialize stocks
 	stock_t* stocks = malloc(sizeof(stock_t) * stocks_count);
 	for(size_t i = 0; i < stocks_count; i++) {
 		stocks[i].loaded = false;
@@ -272,19 +427,35 @@ int prepare_stocks(sqlite3* db, const char* data_folder, size_t compare_n_days, 
 		stocks[i].isin = NULL;
 	}
 	
+	// load reference data for stocks
 	if(load_stock_reference_data(db, stocks)) {
 		free(stocks);
 		return EXIT_FAILURE;
 	}
 	
+	// load data of stocks
 	load_stocks_values(stocks, stocks_count, data_folder, compare_n_days, average_future_n_days);
 
 	DEBUG("Loaded all data. Beginning with comparisons.\n");
 
+	stock_future_trend_result_t* results = NULL;
+
 	for(size_t i = 0; i < stocks_count; i++) {
 		if(stocks[i].loaded) {
-			find_similar_stock_trends(&stocks[i], stocks, stocks_count, compare_n_days);
+			stock_future_trend_result_t* future_trend = NULL;
+			if(find_similar_stock_trends(&stocks[i], stocks, stocks_count, average_n_results, compare_n_days, average_future_n_days, &future_trend)) {
+				DEBUG("Failed to find similar stock trends for %s.\n", stocks[i].isin);
+				continue;
+			}
+			insert_future_trend_results_sorted(&results, future_trend);
 		}
+	}
+
+	for(stock_future_trend_result_t* iter = results; iter != NULL; ) {
+		DEBUG("%s future average trend is %f.\n", iter->stock->isin, iter->trend);
+		stock_future_trend_result_t* temp = iter;
+		iter = iter->next;
+		free(temp);	
 	}
 
 	for(size_t i = 0; i < stocks_count; i++) {
