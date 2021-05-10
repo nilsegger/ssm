@@ -392,7 +392,6 @@ int find_similar_stock_trends(stock_t* current, stock_t* others, size_t others_l
 				avg = avg / (double)compare_n_days;
 				insert_comparison_result_into_sorted_list(&results, avg, other, j - 1);
 			}
-			break;
 		}
 	}
 
