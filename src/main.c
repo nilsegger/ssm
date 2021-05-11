@@ -58,6 +58,10 @@ int main(int argc, char** argv) {
 	time_t date_end = -1;
 
 	bool should_find_most_promising_future_averages = false;
+	size_t average_n_results = 0;
+	size_t compare_n_days = 0;
+	size_t average_future_n_days = 0;
+	size_t threads = 1;
 
 	const char data_folder[256];
 	memset((void*)data_folder, 0, 256);
@@ -78,6 +82,10 @@ int main(int argc, char** argv) {
 			{"data-folder",  required_argument, 0, 0},
 			{"out-folder",  required_argument, 0, 0},
 			{"find-prom",  no_argument, 0, 0},
+			{"average-n-results",  required_argument, 0, 0},
+			{"compare-n-days",  required_argument, 0, 0},
+			{"average-future-n-days",  required_argument, 0, 0},
+			{"threads",  required_argument, 0, 0},
 			{0, 0, 0, 0}
 		};
 
@@ -111,7 +119,20 @@ int main(int argc, char** argv) {
 			strcpy((char*)out_folder, optarg);
 		} else if(strcmp(option, "find-prom") == 0) {
 			should_find_most_promising_future_averages = true;
+		} else if(strcmp(option, "average-n-results") == 0) {
+			char* end;
+			average_n_results = strtoll(optarg, &end, 10);
+		} else if(strcmp(option, "compare-n-days") == 0) {
+			char* end;
+			compare_n_days = strtoll(optarg, &end, 10);
+		} else if(strcmp(option, "average-future-n-days") == 0) {
+			char* end;
+			average_future_n_days = strtoll(optarg, &end, 10);
+		} else if(strcmp(option, "threads") == 0) {
+			char* end;
+			threads = strtoll(optarg, &end, 10);
 		}
+
 
 		switch (c) {
 			case 0:
@@ -174,8 +195,11 @@ int main(int argc, char** argv) {
 		if(*data_folder == 0 || *out_folder == 0) {
 			fprintf(stderr, "Missing arguments --date-folder and --out-folder.\n");
 			exit(EXIT_FAILURE);
+		} else if(average_n_results == 0 || compare_n_days == 0 || average_future_n_days == 0) {
+			fprintf(stderr, "Missing either --average-n-results --compare-n-days or --average-future-n-days.\n");
+			exit(EXIT_FAILURE);
 		}
-		else if(prepare_stocks(db, data_folder, out_folder, 5, 30, 30, 12) == EXIT_FAILURE) {
+		else if(prepare_stocks(db, data_folder, out_folder, average_n_results, compare_n_days, average_future_n_days, threads) == EXIT_FAILURE) {
 			exit(EXIT_FAILURE);
 		}
 	}

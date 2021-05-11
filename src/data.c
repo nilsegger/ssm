@@ -572,9 +572,9 @@ int prepare_stocks(sqlite3* db, const char* data_folder, const char* out_folder,
 		fprintf(fp, "ISIN,volume,StartDate,EndDate,Trend\n");
 		for(stock_future_trend_result_t* iter = results; iter != NULL; iter = iter->next) {
 			char start_date[11];
-			strftime(start_date, 11, "%d-%m-%Y", localtime(&iter->stock->vals[iter->stock->vals_len - compare_n_days - 1].date));
+			strftime(start_date, 11, "%m/%d/%Y", localtime(&iter->stock->vals[iter->stock->vals_len - compare_n_days - 1].date));
 			char end_date[11];
-			strftime(end_date, 11, "%d-%m-%Y", localtime(&iter->stock->vals[iter->stock->vals_len - 1].date));
+			strftime(end_date, 11, "%m/%d/%Y", localtime(&iter->stock->vals[iter->stock->vals_len - 1].date));
 			// char trend_date[11];
 			// strftime(trend_date, 11, "%d-%m-%Y", localtime(&iter->stock->vals[iter->stock->vals_len - 1].date + (average_future_n_days * 24 * 60 * 60)));
 			fprintf(fp, "%s,%ld,%s,%s,%f\n", iter->stock->isin, iter->stock->vals[iter->stock->vals_len - 1].volume, start_date, end_date, iter->trend);
