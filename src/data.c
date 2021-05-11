@@ -288,7 +288,7 @@ double calculate_average_difference(double prev, double current, double other_pr
 	return (100.0 / prev * current - 100.0) - (100.0 / other_prev * other - 100.0);
 }
 
-void insert_comparison_result_into_sorted_list(stock_comparison_result_t** results, double average_difference, stock_t* other, size_t other_start_index) {
+void insert_comparison_result_into_sorted_list(stock_comparison_result_t** results, double average_difference, stock_t* other, size_t other_start_index, size_t average_n_results) {
 	// insert new stock_comparison_result_t into sorted linked list, smallest avg at beg
 	stock_comparison_result_t** results_ptr = NULL;
 	stock_comparison_result_t* next = NULL;
@@ -299,8 +299,11 @@ void insert_comparison_result_into_sorted_list(stock_comparison_result_t** resul
 			next = *results;
 			results_ptr = results;
 		} else {
+			size_t count = 1;
 			for(stock_comparison_result_t* iter = *results; iter != NULL; iter = iter->next) {
-				if(iter->next == NULL) {
+				if(count == average_n_results) {
+					break;
+				} else if(iter->next == NULL) {
 					results_ptr = &iter->next;
 					break;
 				} else if(iter->next->average_difference > average_difference) {
@@ -308,15 +311,18 @@ void insert_comparison_result_into_sorted_list(stock_comparison_result_t** resul
 					next = iter->next;
 					break;
 				}
+				count++;
 			}
 		}
 	}
 	
-	*results_ptr = malloc(sizeof(stock_comparison_result_t));
-	(*results_ptr)->average_difference = average_difference;
-	(*results_ptr)->other = other;
-	(*results_ptr)->other_start_index = other_start_index;
-	(*results_ptr)->next = next;
+	if(results_ptr != NULL) {
+		*results_ptr = malloc(sizeof(stock_comparison_result_t));
+		(*results_ptr)->average_difference = average_difference;
+		(*results_ptr)->other = other;
+		(*results_ptr)->other_start_index = other_start_index;
+		(*results_ptr)->next = next;
+	}
 }
 
 
@@ -404,7 +410,7 @@ void* find_similar_stock_trends(void* v) {
 
 			if(has_consecutive_days) {
 				avg = avg / (double)args->compare_n_days;
-				insert_comparison_result_into_sorted_list(&results, avg, other, j - 1);
+				insert_comparison_result_into_sorted_list(&results, avg, other, j - 1, args->average_n_results);
 			}
 		}
 	}
@@ -564,13 +570,15 @@ int prepare_stocks(sqlite3* db, const char* data_folder, const char* out_folder,
 	get_stock_file_name(out_folder, "result", result_file_path);
 	FILE* fp = fopen(result_file_path, "a");
 	if(fp) {
-		fprintf(fp, "ISIN,StartDate,EndDate,Trend\n");
+		fprintf(fp, "ISIN,volume,StartDate,EndDate,Trend\n");
 		for(stock_future_trend_result_t* iter = results; iter != NULL; iter = iter->next) {
 			char start_date[11];
 			strftime(start_date, 11, "%d-%m-%Y", localtime(&iter->stock->vals[iter->stock->vals_len - compare_n_days - 1].date));
 			char end_date[11];
 			strftime(end_date, 11, "%d-%m-%Y", localtime(&iter->stock->vals[iter->stock->vals_len - 1].date));
-			fprintf(fp, "%s,%s,%s,%f\n", iter->stock->isin, start_date, end_date, iter->trend);
+			// char trend_date[11];
+			// strftime(trend_date, 11, "%d-%m-%Y", localtime(&iter->stock->vals[iter->stock->vals_len - 1].date + (average_future_n_days * 24 * 60 * 60)));
+			fprintf(fp, "%s,%ld,%s,%s,%f\n", iter->stock->isin, iter->stock->vals[iter->stock->vals_len - 1].volume, start_date, end_date, iter->trend);
 		}
 		fclose(fp);
 	} else {
