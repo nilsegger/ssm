@@ -326,7 +326,7 @@ void insert_comparison_result_into_sorted_list(stock_comparison_result_t** resul
 }
 
 
-void save_stock_average_results(stock_t* current, stock_comparison_result_t* results, size_t compare_n_days, const char* out_folder) {
+void save_stock_average_results(stock_t* current, stock_comparison_result_t* results, size_t average_n_results, size_t compare_n_days, const char* out_folder) {
 	const char file_path[256];
 	get_stock_file_name(out_folder, current->isin, file_path);
 
@@ -345,8 +345,7 @@ void save_stock_average_results(stock_t* current, stock_comparison_result_t* res
 			strftime(other_end_date, 11, "%d-%m-%Y", localtime(&iter->other->vals[iter->other_start_index + compare_n_days].date));
 			fprintf(fp, "%s,%s,%s,%s,%s,%s,%f\n", current->isin, start_date, end_date, iter->other->isin, other_start_date, other_end_date, iter->average_difference);
 
-			// TODO remove hardcoded 25
-			if(count == 25) {
+			if(count + 1 == average_n_results) {
 				break;
 			}
 			count++;
@@ -419,7 +418,7 @@ void* find_similar_stock_trends(void* v) {
 	int ec = stock_average_results_future_trend(results, args->average_n_results, args->compare_n_days, args->average_future_n_days, &future_avg_trend);
 
 	if(!ec) {
-		save_stock_average_results(args->current, results, args->compare_n_days, args->out_folder);
+		save_stock_average_results(args->current, results, args->average_n_results, args->compare_n_days, args->out_folder);
 	}
 
 	// Free results in both cases, success and error
