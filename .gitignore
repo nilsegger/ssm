@@ -4,4 +4,6 @@ data/test
 build/*
 *.bak
 compile_commands.json
+release_data
+release_out
 
