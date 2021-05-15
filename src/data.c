@@ -46,7 +46,7 @@ typedef struct stock_future_trend_result {
 typedef struct stock_thread_args {
 	stock_t* current;
 	stock_t* others;
-	size_t others_len, average_n_results, compare_n_days, average_future_n_days;
+	size_t others_len, average_n_results, compare_n_days, ignore_last_n_days, average_future_n_days;
        	stock_future_trend_result_t* result;
 	const char* out_folder;
 	bool done;
@@ -221,7 +221,7 @@ int load_stock_reference_data(sqlite3* db, stock_t* stocks) {
  * @param compare_n_days Amount of days whilch will be compared
  * @param average_future_n_days Amoung of days which will get averaged 
  */
-void load_stocks_values(stock_t* stocks, size_t stocks_len, const char* data_folder, size_t compare_n_days, size_t average_future_n_days) {
+void load_stocks_values(stock_t* stocks, size_t stocks_len, const char* data_folder, size_t compare_n_days, size_t ignore_last_n_days, size_t average_future_n_days) {
 	for(size_t i = 0; i < stocks_len; i++) {
 		char stock_file_name[256];
 		get_stock_file_name(data_folder, stocks[i].isin, stock_file_name);		
@@ -234,7 +234,7 @@ void load_stocks_values(stock_t* stocks, size_t stocks_len, const char* data_fol
 			continue;
 		}	
 
-		if(row_count < compare_n_days + average_future_n_days + 1) {
+		if(row_count < compare_n_days + ignore_last_n_days + average_future_n_days + 1) {
 			DEBUG("%s does not contain enough rows for comparing and averaging future.\n", stock_file_name);
 			continue;
 		}
@@ -360,7 +360,7 @@ void* find_similar_stock_trends(void* v) {
 	stock_thread_args_t* args = v;
 	// check if currents last compare_n_days are not spaced out in a longer time period
 	time_t week_in_s = 8 * 24 * 60 * 60; // using 8 for a little bit of space
-	for(size_t i = args->current->vals_len - args->compare_n_days; i < args->current->vals_len; i++) {
+	for(size_t i = args->current->vals_len - args->compare_n_days - args->ignore_last_n_days; i < args->current->vals_len; i++) {
 		if(args->current->vals[i].date - week_in_s > args->current->vals[i - 1].date) {
 			// Last compare_n_days of current are not consecutive
 			DEBUG("Last %ld days of %s are not consecutive. %ld:%ld\n", args->compare_n_days, args->current->isin, args->current->vals[i].date, args->current->vals[i -1].date);
@@ -377,14 +377,14 @@ void* find_similar_stock_trends(void* v) {
 
 		if(!other->loaded) continue;
 
-		DEBUG("%ld/%ld: Finding similar trends between %s and other %s.\n", i, args->others_len, args->current->isin, other->isin);
+		// DEBUG("%ld/%ld: Finding similar trends between %s and other %s.\n", i, args->others_len, args->current->isin, other->isin);
 			
-		for(size_t j = 1; j < other->vals_len - args->compare_n_days - args->average_future_n_days; j++) {
+		for(size_t j = 1; j < other->vals_len - args->compare_n_days - args->average_future_n_days - args->ignore_last_n_days; j++) {
 			double avg = 0.0;
 			bool has_consecutive_days = true;
 			for(size_t k = 0; k < args->compare_n_days; k++) {
-				stock_value_t* current_val_prev = &args->current->vals[args->current->vals_len - 1 - args->compare_n_days + k];	
-				stock_value_t* current_val = &args->current->vals[args->current->vals_len - args->compare_n_days + k];
+				stock_value_t* current_val_prev = &args->current->vals[args->current->vals_len - 1 - args->compare_n_days - args->ignore_last_n_days + k];	
+				stock_value_t* current_val = &args->current->vals[args->current->vals_len - args->compare_n_days - args->ignore_last_n_days + k];
 
 				stock_value_t* other_val_prev = &other->vals[j + k - 1];
 				stock_value_t* other_val = &other->vals[j + k];
@@ -485,7 +485,7 @@ void finish_thread(pthread_t* t, stock_thread_args_t* args, stock_future_trend_r
 /**
  * Prepares stocks data for comparison.
  */
-int prepare_stocks(sqlite3* db, const char* data_folder, const char* out_folder, size_t average_n_results, size_t compare_n_days, size_t average_future_n_days, size_t cores) {
+int find_most_promising_stocks(sqlite3* db, const char* data_folder, const char* out_folder, size_t average_n_results, size_t compare_n_days, size_t ignore_last_n_days, size_t average_future_n_days, size_t cores) {
 	// Count stocks and fetch each isin
 	int64_t stocks_count;
 	if(count_stocks(db, &stocks_count)) {
@@ -508,7 +508,7 @@ int prepare_stocks(sqlite3* db, const char* data_folder, const char* out_folder,
 	}
 	
 	// load data of stocks
-	load_stocks_values(stocks, stocks_count, data_folder, compare_n_days, average_future_n_days);
+	load_stocks_values(stocks, stocks_count, data_folder, compare_n_days, ignore_last_n_days, average_future_n_days);
 
 	DEBUG("Loaded all data. Beginning with comparisons.\n");
 
@@ -523,6 +523,7 @@ int prepare_stocks(sqlite3* db, const char* data_folder, const char* out_folder,
 		args[i].others_len = stocks_count;
 		args[i].average_n_results = average_n_results;
 		args[i].compare_n_days = compare_n_days;
+		args[i].ignore_last_n_days = ignore_last_n_days;
 		args[i].average_future_n_days = average_future_n_days;
 		args[i].out_folder = out_folder;
 		args[i].done = false;
