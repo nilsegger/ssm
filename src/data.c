@@ -12,18 +12,6 @@
 #include "references/six_stock_references.h"
 #include "data.h"
 
-typedef struct stock_value {
-	time_t date;
-	double closing, high, low;
-	uint64_t volume;
-} stock_value_t;
-
-typedef struct stock {
-	const char* isin;
-	stock_value_t* vals;
-	size_t vals_len;
-	bool loaded;
-} stock_t;
 
 typedef struct load_stock_container {
 	const stock_t* stock;
@@ -37,12 +25,6 @@ typedef struct stock_comparison_result {
 	struct stock_comparison_result* next;
 } stock_comparison_result_t;
 
-typedef struct stock_future_trend_result {
-	const stock_t* stock;
-	double trend;
-	struct stock_future_trend_result* next;
-} stock_future_trend_result_t;
-
 typedef struct stock_thread_args {
 	const stock_t* current;
 	const stock_t* others;
@@ -51,6 +33,7 @@ typedef struct stock_thread_args {
 	const char* out_folder;
 	bool done;
 	int return_code;
+	bool joined;
 } stock_thread_args_t;
 
 /**
@@ -58,7 +41,7 @@ typedef struct stock_thread_args {
  */
 void load_stocks_values_callback(csv_easy_parse_args_t* args) {
 	load_stock_container_t* container = args->custom;
-	stock_t* stock = container->stock;
+	const stock_t* stock = container->stock;
 	stock_value_t* value = &stock->vals[container->len]; 
 
 	struct tm time = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
@@ -282,7 +265,7 @@ double calculate_average_difference(double prev, double current, double other_pr
 	return (100.0 / prev * current - 100.0) - (100.0 / other_prev * other - 100.0);
 }
 
-void insert_comparison_result_into_sorted_list(stock_comparison_result_t** results, double average_difference, stock_t* other, size_t other_start_index, size_t average_n_results) {
+void insert_comparison_result_into_sorted_list(stock_comparison_result_t** results, double average_difference, const stock_t* other, size_t other_start_index, size_t average_n_results) {
 	// insert new stock_comparison_result_t into sorted linked list, smallest avg at beg
 	stock_comparison_result_t** results_ptr = NULL;
 	stock_comparison_result_t* next = NULL;
@@ -367,7 +350,7 @@ void* find_similar_stock_trends(void* v) {
 	stock_comparison_result_t* results = NULL;
 	// start comparing
 	for(size_t i = 0; i < args->others_len; i++) {
-		stock_t* other = &((args->others)[i]);
+		const stock_t* other = &((args->others)[i]);
 
 		if(!other->loaded || other->vals_len < args->compare_n_days + args->ignore_last_n_days + args->average_future_n_days + 1) continue;
 
@@ -476,6 +459,7 @@ void finish_thread(pthread_t* t, stock_thread_args_t* args, stock_future_trend_r
 	args->result = NULL;
 	args->done = false;
 	args->return_code = 0;
+	args->joined = true;
 }
 
 int prepare_stocks(sqlite3* db, const char* data_folder,
@@ -528,6 +512,7 @@ int find_most_promising_stocks(const char* out_folder,
 		args[i].out_folder = out_folder;
 		args[i].done = false;
 		args[i].return_code = 0;
+		args[i].joined = true;
 	}
 
 	size_t stocks_finished = 0;
@@ -548,11 +533,13 @@ int find_most_promising_stocks(const char* out_folder,
 				} else if(!free_core && args[c].done) {
 					finish_thread(&threads[c], &args[c], results, &stocks_finished, stocks_count);
 					args[c].current = &stocks[i];
+					args[c].joined = false; 
 					pthread_create(&threads[c], NULL, find_similar_stock_trends, (void*)&args[c]);
 					found_free_thread = true;
 				} else {
 					// first time use of core
 					args[c].current = &stocks[i];
+					args[c].joined = false; 
 					pthread_create(&threads[c], NULL, find_similar_stock_trends, (void*)&args[c]);
 					found_free_thread = true;
 				}
@@ -562,7 +549,7 @@ int find_most_promising_stocks(const char* out_folder,
 	}
 
 	for(int i = 0; i < cores; i++) {
-		if(args[i].current != NULL && !args[i].done) {
+		if(args[i].joined == false) {
 			finish_thread(&threads[i], &args[i], results, &stocks_finished, stocks_count);
 		}
 	}
@@ -580,7 +567,7 @@ void save_find_most_promising_result(stock_future_trend_result_t* results, const
 			char start_date[11];
 			strftime(start_date, 11, "%m/%d/%Y", localtime(&iter->stock->vals[iter->stock->vals_len - compare_n_days - ignore_last_n_days - 1].date));
 			char end_date[11];
-			strftime(end_date, 11, "%m/%d/%Y", localtime(&iter->stock->vals[iter->stock->vals_len - - ignore_last_n_days - 1].date));
+			strftime(end_date, 11, "%m/%d/%Y", localtime(&iter->stock->vals[iter->stock->vals_len - ignore_last_n_days - 1].date));
 			fprintf(fp, "%s,%ld,%s,%s,%f\n", iter->stock->isin, iter->stock->vals[iter->stock->vals_len - 1].volume, start_date, end_date, iter->trend);
 		}
 		fclose(fp);

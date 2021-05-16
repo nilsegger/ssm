@@ -23,6 +23,7 @@
 #include "csv_parser.h"
 #include "references/six_stock_references.h"
 #include "data.h"
+#include "supervisor.h"
 
 int parse_date_optarg(const char* input, time_t *buffer) {
 	if(strcmp(input, "today") == 0) {
@@ -61,6 +62,7 @@ int main(int argc, char** argv) {
 	size_t average_n_results = 0;
 	size_t compare_n_days = 0;
 	size_t average_future_n_days = 0;
+	size_t ignore_last_n_days = 0;
 	size_t threads = 1;
 
 	const char data_folder[256];
@@ -68,6 +70,8 @@ int main(int argc, char** argv) {
 
 	const char out_folder[256];
 	memset((void*)out_folder, 0, 256);
+
+	bool find_best_options = false;
 
 	while (1) {
 		int this_option_optind = optind ? optind : 1;
@@ -82,8 +86,10 @@ int main(int argc, char** argv) {
 			{"data-folder",  required_argument, 0, 0},
 			{"out-folder",  required_argument, 0, 0},
 			{"find-prom",  no_argument, 0, 0},
+			{"find-options",  no_argument, 0, 0},
 			{"average-n-results",  required_argument, 0, 0},
 			{"compare-n-days",  required_argument, 0, 0},
+			{"ignore-last-n-days",  required_argument, 0, 0},
 			{"average-future-n-days",  required_argument, 0, 0},
 			{"threads",  required_argument, 0, 0},
 			{0, 0, 0, 0}
@@ -119,20 +125,24 @@ int main(int argc, char** argv) {
 			strcpy((char*)out_folder, optarg);
 		} else if(strcmp(option, "find-prom") == 0) {
 			should_find_most_promising_future_averages = true;
+		} else if(strcmp(option, "find-options") == 0) {
+			find_best_options = true;
 		} else if(strcmp(option, "average-n-results") == 0) {
 			char* end;
 			average_n_results = strtoll(optarg, &end, 10);
 		} else if(strcmp(option, "compare-n-days") == 0) {
 			char* end;
 			compare_n_days = strtoll(optarg, &end, 10);
-		} else if(strcmp(option, "average-future-n-days") == 0) {
+		} else if(strcmp(option, "ignore-last-n-days") == 0) {
+			char* end;
+			ignore_last_n_days = strtoll(optarg, &end, 10);
+		}else if(strcmp(option, "average-future-n-days") == 0) {
 			char* end;
 			average_future_n_days = strtoll(optarg, &end, 10);
 		} else if(strcmp(option, "threads") == 0) {
 			char* end;
 			threads = strtoll(optarg, &end, 10);
 		}
-
 
 		switch (c) {
 			case 0:
@@ -203,12 +213,28 @@ int main(int argc, char** argv) {
 			exit(EXIT_FAILURE);
 		}
 		else if(prepare_stocks(db, data_folder, &stocks, &stocks_count)
-			       	|| find_most_promising_stocks(out_folder, average_n_results, compare_n_days, 0, average_future_n_days, threads, stocks, stocks_count, &stock_most_prom_results) == EXIT_FAILURE) {
+			       	|| find_most_promising_stocks(out_folder, average_n_results, compare_n_days, ignore_last_n_days, average_future_n_days, threads, stocks, stocks_count, &stock_most_prom_results) == EXIT_FAILURE) {
 			exit(EXIT_FAILURE);
 		} else {
-			save_find_most_promising_result(stock_most_prom_results, out_folder, compare_n_days, 0);
+			save_find_most_promising_result(stock_most_prom_results, out_folder, compare_n_days, ignore_last_n_days);
 			free_stock_future_trend_results_list(stock_most_prom_results);
 			free_stocks(stocks, stocks_count);
+		}
+	}
+
+	if(find_best_options) {
+		best_options_result_t result;
+		if(*data_folder == 0 || *out_folder == 0) {
+			fprintf(stderr, "Missing arguments --date-folder and --out-folder.\n");
+			exit(EXIT_FAILURE);
+		} else if(average_future_n_days == 0) {
+			fprintf(stderr, "Missing --average-future-n-days.\n");
+			exit(EXIT_FAILURE);
+		}
+		else if(find_best_result(db, data_folder, out_folder, average_future_n_days, threads, &result)) {
+			exit(EXIT_FAILURE);			
+		} else {
+			printf("Best result using average-n-results %ld with compare-n-days %ld. Average trend of %f.\n", result.average_n_results, result.compare_n_days, result.average_trend);
 		}
 	}
 	

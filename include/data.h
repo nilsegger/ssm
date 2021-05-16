@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include <stdbool.h>
 
 // https://stackoverflow.com/questions/15334558/compiler-gets-warnings-when-using-strptime-function-c
 #define __USE_XOPEN
@@ -18,6 +19,26 @@
  * @returns 0 if successful.
  */
 int download_stocks_daily_values(sqlite3* db, const char* folder, time_t start, time_t end);
+
+typedef struct stock_value {
+	time_t date;
+	double closing, high, low;
+	uint64_t volume;
+} stock_value_t;
+
+typedef struct stock {
+	const char* isin;
+	stock_value_t* vals;
+	size_t vals_len;
+	bool loaded;
+} stock_t;
+
+typedef struct stock_future_trend_result {
+	const stock_t* stock;
+	double trend;
+	struct stock_future_trend_result* next;
+} stock_future_trend_result_t;
+
 
 typedef struct stock stock_t;
 typedef struct stock_future_trend_result stock_future_trend_result_t;
