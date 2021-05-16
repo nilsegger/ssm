@@ -218,10 +218,8 @@ int load_stock_reference_data(sqlite3* db, stock_t* stocks) {
  * @param stocks Pointer to stocks arr
  * @param stocks_len Count of stocks
  * @param data_folder location on drive where csv files are stored
- * @param compare_n_days Amount of days whilch will be compared
- * @param average_future_n_days Amoung of days which will get averaged 
  */
-void load_stocks_values(stock_t* stocks, size_t stocks_len, const char* data_folder, size_t compare_n_days, size_t ignore_last_n_days, size_t average_future_n_days) {
+void load_stocks_values(stock_t* stocks, size_t stocks_len, const char* data_folder) {
 	for(size_t i = 0; i < stocks_len; i++) {
 		char stock_file_name[256];
 		get_stock_file_name(data_folder, stocks[i].isin, stock_file_name);		
@@ -234,10 +232,6 @@ void load_stocks_values(stock_t* stocks, size_t stocks_len, const char* data_fol
 			continue;
 		}	
 
-		if(row_count < compare_n_days + ignore_last_n_days + average_future_n_days + 1) {
-			DEBUG("%s does not contain enough rows for comparing and averaging future.\n", stock_file_name);
-			continue;
-		}
 		stocks[i].vals = malloc(sizeof(stock_value_t) * row_count);	
 
 		load_stock_container_t container = {&stocks[i], 0};
@@ -375,7 +369,7 @@ void* find_similar_stock_trends(void* v) {
 	for(size_t i = 0; i < args->others_len; i++) {
 		stock_t* other = &((args->others)[i]);
 
-		if(!other->loaded) continue;
+		if(!other->loaded || other->vals_len < args->compare_n_days + args->ignore_last_n_days + args->average_future_n_days + 1) continue;
 
 		// DEBUG("%ld/%ld: Finding similar trends between %s and other %s.\n", i, args->others_len, args->current->isin, other->isin);
 			
@@ -386,6 +380,8 @@ void* find_similar_stock_trends(void* v) {
 				stock_value_t* current_val_prev = &args->current->vals[args->current->vals_len - 1 - args->compare_n_days - args->ignore_last_n_days + k];	
 				stock_value_t* current_val = &args->current->vals[args->current->vals_len - args->compare_n_days - args->ignore_last_n_days + k];
 
+				// DEBUG("Other len %ld index %ld\n", other->vals_len, j + k);
+				
 				stock_value_t* other_val_prev = &other->vals[j + k - 1];
 				stock_value_t* other_val = &other->vals[j + k];
 
@@ -482,8 +478,7 @@ void finish_thread(pthread_t* t, stock_thread_args_t* args, stock_future_trend_r
 	args->return_code = 0;
 }
 
-int prepare_stocks(sqlite3* db, const char* data_folder, size_t compare_n_days,
-	       	size_t ignore_last_n_days, size_t average_future_n_days,
+int prepare_stocks(sqlite3* db, const char* data_folder,
 	       	stock_t** stocks, int64_t* stocks_count) {
 	// Count stocks and fetch each isin
 	if(count_stocks(db, stocks_count)) {
@@ -506,7 +501,7 @@ int prepare_stocks(sqlite3* db, const char* data_folder, size_t compare_n_days,
 	}
 	
 	// load data of stocks
-	load_stocks_values(*stocks, *stocks_count, data_folder, compare_n_days, ignore_last_n_days, average_future_n_days);
+	load_stocks_values(*stocks, *stocks_count, data_folder);
 	return EXIT_SUCCESS;
 }
 
@@ -538,7 +533,7 @@ int find_most_promising_stocks(const char* out_folder,
 	size_t stocks_finished = 0;
 	for(size_t i = 0; i < *stocks_count; i++) {
 
-		if(!(*stocks)[i].loaded) {
+		if(!(*stocks)[i].loaded || (*stocks)[i].vals_len < compare_n_days + ignore_last_n_days + average_future_n_days + 1) {
 			stocks_finished++;
 		       	continue;
 		}
@@ -575,7 +570,7 @@ int find_most_promising_stocks(const char* out_folder,
 	return EXIT_SUCCESS;
 }
 
-void save_find_most_promising_result(stock_future_trend_result_t* results, const char* out_folder, size_t compare_n_days, size_t ignore_n_days) {
+void save_find_most_promising_result(stock_future_trend_result_t* results, const char* out_folder, size_t compare_n_days, size_t ignore_last_n_days) {
 	const char result_file_path[256];
 	get_stock_file_name(out_folder, "result", result_file_path);
 	FILE* fp = fopen(result_file_path, "a");
@@ -583,9 +578,9 @@ void save_find_most_promising_result(stock_future_trend_result_t* results, const
 		fprintf(fp, "ISIN,volume,StartDate,EndDate,Trend\n");
 		for(stock_future_trend_result_t* iter = results; iter != NULL; iter = iter->next) {
 			char start_date[11];
-			strftime(start_date, 11, "%m/%d/%Y", localtime(&iter->stock->vals[iter->stock->vals_len - compare_n_days - ignore_n_days - 1].date));
+			strftime(start_date, 11, "%m/%d/%Y", localtime(&iter->stock->vals[iter->stock->vals_len - compare_n_days - ignore_last_n_days - 1].date));
 			char end_date[11];
-			strftime(end_date, 11, "%m/%d/%Y", localtime(&iter->stock->vals[iter->stock->vals_len - - ignore_n_days - 1].date));
+			strftime(end_date, 11, "%m/%d/%Y", localtime(&iter->stock->vals[iter->stock->vals_len - - ignore_last_n_days - 1].date));
 			fprintf(fp, "%s,%ld,%s,%s,%f\n", iter->stock->isin, iter->stock->vals[iter->stock->vals_len - 1].volume, start_date, end_date, iter->trend);
 		}
 		fclose(fp);
