@@ -26,26 +26,26 @@ typedef struct stock {
 } stock_t;
 
 typedef struct load_stock_container {
-	stock_t* stock;
+	const stock_t* stock;
 	size_t len; // len will contain count of how many rows were succesfully read
 } load_stock_container_t;
 
 typedef struct stock_comparison_result {
-	stock_t* other;
+	const stock_t* other;
 	size_t other_start_index;
 	double average_difference;
 	struct stock_comparison_result* next;
 } stock_comparison_result_t;
 
 typedef struct stock_future_trend_result {
-	stock_t* stock;
+	const stock_t* stock;
 	double trend;
 	struct stock_future_trend_result* next;
 } stock_future_trend_result_t;
 
 typedef struct stock_thread_args {
-	stock_t* current;
-	stock_t* others;
+	const stock_t* current;
+	const stock_t* others;
 	size_t others_len, average_n_results, compare_n_days, ignore_last_n_days, average_future_n_days;
        	stock_future_trend_result_t* result;
 	const char* out_folder;
@@ -509,8 +509,8 @@ int prepare_stocks(sqlite3* db, const char* data_folder,
  * Prepares stocks data for comparison.
  */
 int find_most_promising_stocks(const char* out_folder,
-	       	size_t average_n_results, size_t compare_n_days, size_t ignore_last_n_days, size_t average_future_n_days,
-	       	size_t cores, stock_t** stocks, int64_t* stocks_count, stock_future_trend_result_t** results) {
+	       	const size_t average_n_results, const size_t compare_n_days, const size_t ignore_last_n_days, const size_t average_future_n_days,
+	       	const size_t cores, const stock_t* stocks, const int64_t stocks_count, stock_future_trend_result_t** results) {
 	
 	*results = NULL;
 
@@ -519,8 +519,8 @@ int find_most_promising_stocks(const char* out_folder,
 	for(int i = 0; i < cores; i++) {
 		args[i].current = NULL;
 		args[i].result = NULL;
-		args[i].others = *stocks;
-		args[i].others_len = *stocks_count;
+		args[i].others = stocks;
+		args[i].others_len = stocks_count;
 		args[i].average_n_results = average_n_results;
 		args[i].compare_n_days = compare_n_days;
 		args[i].ignore_last_n_days = ignore_last_n_days;
@@ -531,9 +531,9 @@ int find_most_promising_stocks(const char* out_folder,
 	}
 
 	size_t stocks_finished = 0;
-	for(size_t i = 0; i < *stocks_count; i++) {
+	for(size_t i = 0; i < stocks_count; i++) {
 
-		if(!(*stocks)[i].loaded || (*stocks)[i].vals_len < compare_n_days + ignore_last_n_days + average_future_n_days + 1) {
+		if(!stocks[i].loaded || stocks[i].vals_len < compare_n_days + ignore_last_n_days + average_future_n_days + 1) {
 			stocks_finished++;
 		       	continue;
 		}
@@ -546,13 +546,13 @@ int find_most_promising_stocks(const char* out_folder,
 				if(!free_core && !args[c].done) {
 					continue;	
 				} else if(!free_core && args[c].done) {
-					finish_thread(&threads[c], &args[c], results, &stocks_finished, *stocks_count);
-					args[c].current = &(*stocks)[i];
+					finish_thread(&threads[c], &args[c], results, &stocks_finished, stocks_count);
+					args[c].current = &stocks[i];
 					pthread_create(&threads[c], NULL, find_similar_stock_trends, (void*)&args[c]);
 					found_free_thread = true;
 				} else {
 					// first time use of core
-					args[c].current = &(*stocks)[i];
+					args[c].current = &stocks[i];
 					pthread_create(&threads[c], NULL, find_similar_stock_trends, (void*)&args[c]);
 					found_free_thread = true;
 				}
@@ -563,7 +563,7 @@ int find_most_promising_stocks(const char* out_folder,
 
 	for(int i = 0; i < cores; i++) {
 		if(args[i].current != NULL && !args[i].done) {
-			finish_thread(&threads[i], &args[i], results, &stocks_finished, *stocks_count);
+			finish_thread(&threads[i], &args[i], results, &stocks_finished, stocks_count);
 		}
 	}
 		

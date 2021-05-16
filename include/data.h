@@ -26,9 +26,9 @@ int prepare_stocks(sqlite3* db, const char* data_folder,
 	       	stock_t** stocks, int64_t* stocks_count);
 
 int find_most_promising_stocks(const char* out_folder,
-	       	size_t average_n_results, size_t compare_n_days, size_t ignore_last_n_days,
-	       	size_t average_future_n_days, size_t cores, stock_t** stocks,
-		int64_t* stocks_count, stock_future_trend_result_t** results);
+	       	const size_t average_n_results, const size_t compare_n_days, const size_t ignore_last_n_days,
+	       	const size_t average_future_n_days, const size_t cores, const stock_t* stocks,
+		const int64_t stocks_count, stock_future_trend_result_t** results);
 
 void save_find_most_promising_result(stock_future_trend_result_t* results, const char* out_folder, size_t compare_n_days, size_t ignore_n_days);
 
