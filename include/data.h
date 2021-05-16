@@ -19,4 +19,16 @@
  */
 int download_stocks_daily_values(sqlite3* db, const char* folder, time_t start, time_t end);
 
-int find_most_promising_stocks(sqlite3* db, const char* data_folder, const char* out_folder, size_t average_n_results, size_t compare_n_days, size_t ignore_last_n_days, size_t average_future_n_days, size_t cores);
+typedef struct stock stock_t;
+typedef struct stock_future_trend_result stock_future_trend_result_t;
+
+int find_most_promising_stocks(sqlite3* db, const char* data_folder, const char* out_folder,
+	       	size_t average_n_results, size_t compare_n_days, size_t ignore_last_n_days,
+	       	size_t average_future_n_days, size_t cores, stock_t** stocks,
+		int64_t* stocks_count, stock_future_trend_result_t** results);
+
+void save_find_most_promising_result(stock_future_trend_result_t* results, const char* out_folder, size_t compare_n_days, size_t ignore_n_days);
+
+void free_stock_future_trend_results_list(stock_future_trend_result_t* results);
+
+void free_stocks(stock_t* stocks, size_t stocks_count);

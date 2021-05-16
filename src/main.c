@@ -192,6 +192,9 @@ int main(int argc, char** argv) {
 	}
 
 	if(should_find_most_promising_future_averages) {
+		stock_t* stocks;
+		int64_t stocks_count = 0;
+		stock_future_trend_result_t* stock_most_prom_results;
 		if(*data_folder == 0 || *out_folder == 0) {
 			fprintf(stderr, "Missing arguments --date-folder and --out-folder.\n");
 			exit(EXIT_FAILURE);
@@ -199,8 +202,12 @@ int main(int argc, char** argv) {
 			fprintf(stderr, "Missing either --average-n-results --compare-n-days or --average-future-n-days.\n");
 			exit(EXIT_FAILURE);
 		}
-		else if(find_most_promising_stocks(db, data_folder, out_folder, average_n_results, compare_n_days, 0, average_future_n_days, threads) == EXIT_FAILURE) {
+		else if(find_most_promising_stocks(db, data_folder, out_folder, average_n_results, compare_n_days, 0, average_future_n_days, threads, &stocks, &stocks_count, &stock_most_prom_results) == EXIT_FAILURE) {
 			exit(EXIT_FAILURE);
+		} else {
+			save_find_most_promising_result(stock_most_prom_results, out_folder, compare_n_days, 0);
+			free_stock_future_trend_results_list(stock_most_prom_results);
+			free_stocks(stocks, stocks_count);
 		}
 	}
 	

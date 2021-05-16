@@ -418,9 +418,9 @@ void* find_similar_stock_trends(void* v) {
 	double future_avg_trend;
 	int ec = stock_average_results_future_trend(results, args->average_n_results, args->compare_n_days, args->average_future_n_days, &future_avg_trend);
 
-	if(!ec) {
+	/* if(!ec) {
 		save_stock_average_results(args->current, results, args->average_n_results, args->compare_n_days, args->out_folder);
-	}
+	} */
 
 	// Free results in both cases, success and error
 	for(stock_comparison_result_t* iter = results; iter != NULL;) {
@@ -485,42 +485,43 @@ void finish_thread(pthread_t* t, stock_thread_args_t* args, stock_future_trend_r
 /**
  * Prepares stocks data for comparison.
  */
-int find_most_promising_stocks(sqlite3* db, const char* data_folder, const char* out_folder, size_t average_n_results, size_t compare_n_days, size_t ignore_last_n_days, size_t average_future_n_days, size_t cores) {
+int find_most_promising_stocks(sqlite3* db, const char* data_folder, const char* out_folder,
+	       	size_t average_n_results, size_t compare_n_days, size_t ignore_last_n_days, size_t average_future_n_days,
+	       	size_t cores, stock_t** stocks, int64_t* stocks_count, stock_future_trend_result_t** results) {
 	// Count stocks and fetch each isin
-	int64_t stocks_count;
-	if(count_stocks(db, &stocks_count)) {
+	if(count_stocks(db, stocks_count)) {
 		return EXIT_FAILURE;
 	}
 
 	// initialize stocks
-	stock_t* stocks = malloc(sizeof(stock_t) * stocks_count);
-	for(size_t i = 0; i < stocks_count; i++) {
-		stocks[i].loaded = false;
-		stocks[i].vals = NULL;
-		stocks[i].vals_len = 0;
-		stocks[i].isin = NULL;
+	*stocks = malloc(sizeof(stock_t) * (*stocks_count));
+	for(size_t i = 0; i < *stocks_count; i++) {
+		(*stocks)[i].loaded = false;
+		(*stocks)[i].vals = NULL;
+		(*stocks)[i].vals_len = 0;
+		(*stocks)[i].isin = NULL;
 	}
 	
 	// load reference data for stocks
-	if(load_stock_reference_data(db, stocks)) {
+	if(load_stock_reference_data(db, *stocks)) {
 		free(stocks);
 		return EXIT_FAILURE;
 	}
 	
 	// load data of stocks
-	load_stocks_values(stocks, stocks_count, data_folder, compare_n_days, ignore_last_n_days, average_future_n_days);
+	load_stocks_values(*stocks, *stocks_count, data_folder, compare_n_days, ignore_last_n_days, average_future_n_days);
 
 	DEBUG("Loaded all data. Beginning with comparisons.\n");
 
-	stock_future_trend_result_t* results = NULL;
+	*results = NULL;
 
 	pthread_t threads[cores];
 	stock_thread_args_t args[cores];
 	for(int i = 0; i < cores; i++) {
 		args[i].current = NULL;
 		args[i].result = NULL;
-		args[i].others = stocks;
-		args[i].others_len = stocks_count;
+		args[i].others = *stocks;
+		args[i].others_len = *stocks_count;
 		args[i].average_n_results = average_n_results;
 		args[i].compare_n_days = compare_n_days;
 		args[i].ignore_last_n_days = ignore_last_n_days;
@@ -531,9 +532,9 @@ int find_most_promising_stocks(sqlite3* db, const char* data_folder, const char*
 	}
 
 	size_t stocks_finished = 0;
-	for(size_t i = 0; i < stocks_count; i++) {
+	for(size_t i = 0; i < *stocks_count; i++) {
 
-		if(!stocks[i].loaded) {
+		if(!(*stocks)[i].loaded) {
 			stocks_finished++;
 		       	continue;
 		}
@@ -546,13 +547,13 @@ int find_most_promising_stocks(sqlite3* db, const char* data_folder, const char*
 				if(!free_core && !args[c].done) {
 					continue;	
 				} else if(!free_core && args[c].done) {
-					finish_thread(&threads[c], &args[c], &results, &stocks_finished, stocks_count);
-					args[c].current = &stocks[i];
+					finish_thread(&threads[c], &args[c], results, &stocks_finished, *stocks_count);
+					args[c].current = &(*stocks)[i];
 					pthread_create(&threads[c], NULL, find_similar_stock_trends, (void*)&args[c]);
 					found_free_thread = true;
 				} else {
 					// first time use of core
-					args[c].current = &stocks[i];
+					args[c].current = &(*stocks)[i];
 					pthread_create(&threads[c], NULL, find_similar_stock_trends, (void*)&args[c]);
 					found_free_thread = true;
 				}
@@ -563,10 +564,14 @@ int find_most_promising_stocks(sqlite3* db, const char* data_folder, const char*
 
 	for(int i = 0; i < cores; i++) {
 		if(args[i].current != NULL && !args[i].done) {
-			finish_thread(&threads[i], &args[i], &results, &stocks_finished, stocks_count);
+			finish_thread(&threads[i], &args[i], results, &stocks_finished, *stocks_count);
 		}
 	}
+		
+	return EXIT_SUCCESS;
+}
 
+void save_find_most_promising_result(stock_future_trend_result_t* results, const char* out_folder, size_t compare_n_days, size_t ignore_n_days) {
 	const char result_file_path[256];
 	get_stock_file_name(out_folder, "result", result_file_path);
 	FILE* fp = fopen(result_file_path, "a");
@@ -574,29 +579,31 @@ int find_most_promising_stocks(sqlite3* db, const char* data_folder, const char*
 		fprintf(fp, "ISIN,volume,StartDate,EndDate,Trend\n");
 		for(stock_future_trend_result_t* iter = results; iter != NULL; iter = iter->next) {
 			char start_date[11];
-			strftime(start_date, 11, "%m/%d/%Y", localtime(&iter->stock->vals[iter->stock->vals_len - compare_n_days - 1].date));
+			strftime(start_date, 11, "%m/%d/%Y", localtime(&iter->stock->vals[iter->stock->vals_len - compare_n_days - ignore_n_days - 1].date));
 			char end_date[11];
-			strftime(end_date, 11, "%m/%d/%Y", localtime(&iter->stock->vals[iter->stock->vals_len - 1].date));
+			strftime(end_date, 11, "%m/%d/%Y", localtime(&iter->stock->vals[iter->stock->vals_len - - ignore_n_days - 1].date));
 			fprintf(fp, "%s,%ld,%s,%s,%f\n", iter->stock->isin, iter->stock->vals[iter->stock->vals_len - 1].volume, start_date, end_date, iter->trend);
 		}
 		fclose(fp);
 	} else {
 		DEBUG("Failed to open results file for writing %s.\n", result_file_path);
 	}
+}
 
+void free_stock_future_trend_results_list(stock_future_trend_result_t* results) {
 	for(stock_future_trend_result_t* iter = results; iter != NULL; ) {
 		stock_future_trend_result_t* temp = iter;
 		iter = iter->next;
 		free(temp);	
 	}
+}
+
+void free_stocks(stock_t* stocks, size_t stocks_count) {
 	for(size_t i = 0; i < stocks_count; i++) {
 		free((void*)stocks[i].isin);
 		if(stocks[i].loaded) {
 			free(stocks[i].vals);
 		}
 	}
-
 	free(stocks);
-	return EXIT_SUCCESS;
 }
-
