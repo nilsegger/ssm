@@ -482,12 +482,9 @@ void finish_thread(pthread_t* t, stock_thread_args_t* args, stock_future_trend_r
 	args->return_code = 0;
 }
 
-/**
- * Prepares stocks data for comparison.
- */
-int find_most_promising_stocks(sqlite3* db, const char* data_folder, const char* out_folder,
-	       	size_t average_n_results, size_t compare_n_days, size_t ignore_last_n_days, size_t average_future_n_days,
-	       	size_t cores, stock_t** stocks, int64_t* stocks_count, stock_future_trend_result_t** results) {
+int prepare_stocks(sqlite3* db, const char* data_folder, size_t compare_n_days,
+	       	size_t ignore_last_n_days, size_t average_future_n_days,
+	       	stock_t** stocks, int64_t* stocks_count) {
 	// Count stocks and fetch each isin
 	if(count_stocks(db, stocks_count)) {
 		return EXIT_FAILURE;
@@ -510,9 +507,16 @@ int find_most_promising_stocks(sqlite3* db, const char* data_folder, const char*
 	
 	// load data of stocks
 	load_stocks_values(*stocks, *stocks_count, data_folder, compare_n_days, ignore_last_n_days, average_future_n_days);
+	return EXIT_SUCCESS;
+}
 
-	DEBUG("Loaded all data. Beginning with comparisons.\n");
-
+/**
+ * Prepares stocks data for comparison.
+ */
+int find_most_promising_stocks(const char* out_folder,
+	       	size_t average_n_results, size_t compare_n_days, size_t ignore_last_n_days, size_t average_future_n_days,
+	       	size_t cores, stock_t** stocks, int64_t* stocks_count, stock_future_trend_result_t** results) {
+	
 	*results = NULL;
 
 	pthread_t threads[cores];

@@ -202,7 +202,8 @@ int main(int argc, char** argv) {
 			fprintf(stderr, "Missing either --average-n-results --compare-n-days or --average-future-n-days.\n");
 			exit(EXIT_FAILURE);
 		}
-		else if(find_most_promising_stocks(db, data_folder, out_folder, average_n_results, compare_n_days, 0, average_future_n_days, threads, &stocks, &stocks_count, &stock_most_prom_results) == EXIT_FAILURE) {
+		else if(prepare_stocks(db, data_folder, compare_n_days, 0, average_future_n_days, &stocks, &stocks_count)
+			       	|| find_most_promising_stocks(out_folder, average_n_results, compare_n_days, 0, average_future_n_days, threads, &stocks, &stocks_count, &stock_most_prom_results) == EXIT_FAILURE) {
 			exit(EXIT_FAILURE);
 		} else {
 			save_find_most_promising_result(stock_most_prom_results, out_folder, compare_n_days, 0);
