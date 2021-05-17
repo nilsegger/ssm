@@ -20,8 +20,8 @@ int find_best_result(sqlite3* db, const char* data_folder, const char* out_folde
 
 	DEBUG("Starting to find best results.\n");
 	size_t ignore_last_n_days = average_future_n_days;
-	for(size_t average_n_results_iter = 3; average_n_results_iter < 10; average_n_results_iter++) {
-		for(size_t compare_n_days_iter = 5; compare_n_days_iter < 30; compare_n_days_iter++) {
+	for(size_t average_n_results_iter = 5; average_n_results_iter < 10; average_n_results_iter++) {
+		for(size_t compare_n_days_iter = 5; compare_n_days_iter < 50; compare_n_days_iter++) {
 			stock_future_trend_result_t* results = NULL;
 			if(find_most_promising_stocks(out_folder, average_n_results_iter, compare_n_days_iter, ignore_last_n_days, average_future_n_days, cores, stocks, stocks_count, &results)) {
 				continue;
@@ -33,12 +33,13 @@ int find_best_result(sqlite3* db, const char* data_folder, const char* out_folde
 			for(stock_future_trend_result_t* iter = results; iter != NULL; iter = iter->next) {
 				// TODO create params for these
 				bool max_trend = iter->trend <= 5.0;
-				bool min_volume = iter->stock->vals[iter->stock->vals_len - ignore_last_n_days - 1].volume > 1000;
+				bool min_volume = iter->stock->vals[iter->stock->vals_len - ignore_last_n_days - 1].volume > 5000;
 				bool max_price = iter->stock->vals[iter->stock->vals_len - ignore_last_n_days - 1].closing < 1000.0;
 				if(max_trend && min_volume && max_price) {
 					double current_value = iter->stock->vals[iter->stock->vals_len - 1].closing;
-					double last_value = iter->stock->vals[iter->stock->vals_len - ignore_last_n_days - compare_n_days_iter - 1].closing;
+					double last_value = iter->stock->vals[iter->stock->vals_len - ignore_last_n_days - 1].closing;
 					double real_trend = 100.0 / last_value * current_value - 100.0;
+					DEBUG("rt %f, current %f, last %f\n", real_trend, current_value, last_value);
 					average_real_trend += real_trend;
 					count++;
 				}

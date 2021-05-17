@@ -381,10 +381,11 @@ void* find_similar_stock_trends(void* v) {
 				//DEBUG("Other len %ld index %ld\n", other->vals_len, j + k);
 
 				double avg_close = calculate_average_difference(current_val_prev->closing, current_val->closing, other_val_prev->closing, other_val->closing);
-				double avg_high = calculate_average_difference(current_val_prev->high, current_val->high, other_val_prev->high, other_val->high);
-				double avg_low = calculate_average_difference(current_val_prev->low, current_val->low, other_val_prev->low, other_val->low);
+				//double avg_high = calculate_average_difference(current_val_prev->high, current_val->high, other_val_prev->high, other_val->high);
+				//double avg_low = calculate_average_difference(current_val_prev->low, current_val->low, other_val_prev->low, other_val->low);
 
-				avg += (avg_close * avg_close + avg_high * avg_high + avg_low * avg_low) / 3.0;
+				//avg += (avg_close * avg_close + avg_high * avg_high + avg_low * avg_low) / 3.0;
+				avg += (avg_close * avg_close);
 			}
 
 			if(has_consecutive_days) {
